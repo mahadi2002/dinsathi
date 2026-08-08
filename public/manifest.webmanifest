@@ -1,0 +1,14 @@
+{
+  "name": "দিনসাথী — DinSathi",
+  "short_name": "DinSathi",
+  "description": "দৈনন্দিন কাজ, রিমাইন্ডার আর অভ্যাস — সব একসাথে।",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FAFAFC",
+  "theme_color": "#2E3A87",
+  "lang": "bn",
+  "icons": [
+    { "src": "/assets/img/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

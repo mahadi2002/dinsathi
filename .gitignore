@@ -1,0 +1,16 @@
+# Secrets — never commit
+.env
+
+# Runtime storage
+storage/logs/*
+storage/cache/*
+storage/uploads/*
+storage/backups/*
+!storage/**/.gitkeep
+
+# OS / editor noise
+Thumbs.db
+.DS_Store
+.idea/
+.vscode/
+*.swp
