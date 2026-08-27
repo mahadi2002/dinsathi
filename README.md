@@ -52,9 +52,7 @@ Full walkthrough, including port conventions and troubleshooting, is in
 
 - [STARTING.md](STARTING.md) — local dev setup, seeded credentials
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- [docs/ROUTES.md](docs/ROUTES.md)
 - [docs/DATABASE.md](docs/DATABASE.md)
-- [docs/FEATURES.md](docs/FEATURES.md) — including known gaps
 - [docs/SECURITY.md](docs/SECURITY.md)
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
