@@ -16,7 +16,7 @@ final class HomeController extends Controller
     {
         return $this->view('home/index', [
             'title'       => null,
-            'description' => 'দৈনন্দিন কাজ, রিমাইন্ডার আর অভ্যাস — সব একসাথে, একটাই জায়গায়। Push ও SMS দুইভাবেই মনে করিয়ে দেয় DinSathi।',
+            'description' => 'দৈনন্দিন কাজ, রিমাইন্ডার আর অভ্যাস — সব একসাথে, একটাই জায়গায়। দিনসাথী Push Notification দিয়ে সময়মতো মনে করিয়ে দেয়।',
         ]);
     }
 
@@ -54,7 +54,7 @@ final class HomeController extends Controller
             return $this->back($request, '/contact');
         }
 
-        (new ContactMessageRepo())->log($v->get('name'), $v->get('contact'), $v->get('message'));
+        (new ContactMessageRepo())->create($v->get('name'), $v->get('contact'), $v->get('message'));
         Session::notify('success', 'বার্তা পাঠানো হয়েছে। ধন্যবাদ!');
 
         return $this->redirect('/contact');

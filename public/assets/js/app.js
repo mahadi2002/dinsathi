@@ -121,18 +121,255 @@
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { closeFab(); } });
   }
 
-  // ── Task / subtask / habit check toggles — progressive: fetch if possible,
-  //    otherwise the surrounding <form> just submits normally. ─────────────
+  // ── Task / subtask / habit check toggles — optimistic: flip the DOM
+  //    immediately (checkmark/strike-through or label swap), fire the
+  //    fetch() in the background, and only roll the DOM back if the
+  //    request actually fails. No more full-page reload on every click. ──
+  function csrfToken() {
+    var token = document.querySelector('meta[name="csrf-token"]');
+    return token ? token.content : '';
+  }
+
   document.querySelectorAll('[data-toggle-url]').forEach(function (el) {
     el.addEventListener('click', function (e) {
       e.preventDefault();
-      var token = document.querySelector('meta[name="csrf-token"]');
+      if (el.dataset.toggleBusy === '1') { return; }
+      el.dataset.toggleBusy = '1';
+
+      var mode = el.dataset.toggleMode || 'check';
+      var undo;
+
+      if (mode === 'label') {
+        var doneClass = el.dataset.toggleDoneClass || 'is-done';
+        var wasDone = el.classList.contains(doneClass);
+        var doneText = el.dataset.toggleDoneText || '';
+        var undoneText = el.dataset.toggleUndoneText || '';
+        el.classList.toggle(doneClass, !wasDone);
+        el.textContent = !wasDone ? doneText : undoneText;
+        undo = function () {
+          el.classList.toggle(doneClass, wasDone);
+          el.textContent = wasDone ? doneText : undoneText;
+        };
+      } else {
+        var wasChecked = el.classList.contains('task-check--done');
+        var row = el.closest('.task-row');
+        var titleEl = row ? row.querySelector('[data-toggle-title]') : null;
+        el.classList.toggle('task-check--done', !wasChecked);
+        el.textContent = !wasChecked ? '✓' : '';
+        if (titleEl) { titleEl.classList.toggle('task-title--done', !wasChecked); }
+        undo = function () {
+          el.classList.toggle('task-check--done', wasChecked);
+          el.textContent = wasChecked ? '✓' : '';
+          if (titleEl) { titleEl.classList.toggle('task-title--done', wasChecked); }
+        };
+      }
+
       fetch(el.dataset.toggleUrl, {
         method: 'POST',
-        headers: { 'X-CSRF-Token': token ? token.content : '', 'Accept': 'application/json' },
-      }).then(function () { window.location.reload(); }).catch(function () { window.location.reload(); });
+        headers: { 'X-CSRF-Token': csrfToken(), 'Accept': 'application/json' },
+      }).then(function (res) {
+        if (!res.ok) { undo(); }
+      }).catch(function () {
+        undo();
+      }).finally(function () {
+        el.dataset.toggleBusy = '0';
+      });
     });
   });
+
+  // ── Recurring-template edit prompt: "this task only / this and future" ──
+  // Shown once, right before the edit actually saves, matching the
+  // Google-Calendar-style choice the spec (01-BUILD-SPEC.md §8) calls for.
+  document.querySelectorAll('form[data-recurring-form]').forEach(function (form) {
+    var prompt = document.querySelector('[data-recur-prompt]');
+    var scopeField = form.querySelector('[data-apply-scope]');
+    if (!prompt || !scopeField) { return; }
+    var confirmed = false;
+
+    form.addEventListener('submit', function (e) {
+      if (confirmed) { return; }
+      e.preventDefault();
+      prompt.hidden = false;
+    });
+
+    prompt.querySelectorAll('[data-recur-choice]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        scopeField.value = btn.dataset.recurChoice;
+        confirmed = true;
+        prompt.hidden = true;
+        if (form.requestSubmit) { form.requestSubmit(); } else { form.submit(); }
+      });
+    });
+
+    var cancelBtn = prompt.querySelector('[data-recur-cancel]');
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', function () { prompt.hidden = true; });
+    }
+  });
+
+  // ── Drag-to-reschedule (calendar day/week views) ────────────────────────
+  // Pointer Events (pointerdown/pointermove/pointerup/pointercancel) unify
+  // mouse, touch and pen behind one code path — unlike HTML5 dragstart/
+  // dragover/drop, which never fire on touch at all. Mouse picks the card
+  // up as soon as it moves past a small threshold; touch/pen require a
+  // brief hold first (so an ordinary scroll gesture isn't mistaken for a
+  // drag), then show the same scale/shadow "picked up" cue mobile users
+  // expect. Drop targets are found with elementFromPoint() under the
+  // pointer, since there's no native dragover to listen for. Same
+  // optimistic DOM move + CSRF-safe fetch() PATCH + rollback-on-failure as
+  // before; same endpoint, untouched.
+  (function () {
+    var cards = document.querySelectorAll('[data-task-card]');
+    if (!cards.length) { return; }
+
+    var HOLD_MS = 300;        // touch/pen: hold this long before pick-up
+    var MOVE_PX = 6;          // mouse: movement past this starts the drag
+    var CANCEL_PX = 10;       // touch/pen: movement past this before pick-up cancels it (treat as scroll)
+
+    var active = null; // { card, pointerId, pointerType, startX, startY, pickedUp, holdTimer, dropSlot }
+
+    function clearDropHighlight() {
+      document.querySelectorAll('.is-drop-target').forEach(function (el) { el.classList.remove('is-drop-target'); });
+    }
+
+    function endDrag() {
+      if (!active) { return; }
+      if (active.holdTimer) { clearTimeout(active.holdTimer); }
+      active.card.classList.remove('is-picked-up');
+      active.card.style.transform = '';
+      clearDropHighlight();
+      active = null;
+    }
+
+    function pickUp() {
+      active.pickedUp = true;
+      active.card.classList.add('is-picked-up');
+      if (active.card.setPointerCapture) {
+        try { active.card.setPointerCapture(active.pointerId); } catch (err) { /* capture is a nicety, not required */ }
+      }
+    }
+
+    function reschedule(card, dueDate, dueTime, targetList, prevParent, prevNext) {
+      fetch('/app/tasks/' + card.dataset.taskId + '/reschedule', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-CSRF-Token': csrfToken(),
+        },
+        body: JSON.stringify({ due_date: dueDate, due_time: dueTime }),
+      }).then(function (res) {
+        if (!res.ok) { throw new Error('reschedule failed'); }
+        card.dataset.dueTime = dueTime;
+      }).catch(function () {
+        // Roll back the optimistic move.
+        if (prevNext) { prevParent.insertBefore(card, prevNext); } else { prevParent.appendChild(card); }
+      });
+    }
+
+    function findDropSlot(x, y) {
+      var el = document.elementFromPoint(x, y);
+      if (!el) { return null; }
+      return el.closest('[data-hour-slot]') || el.closest('[data-day-slot]');
+    }
+
+    function drop(card, slot) {
+      var prevParent = card.parentNode;
+      var prevNext = card.nextSibling;
+
+      if (slot.hasAttribute('data-hour-slot')) {
+        var dayContainer = document.querySelector('[data-reschedule-date]');
+        var list = slot.querySelector('.cal-day__tasks');
+        if (!dayContainer || !list) { return; }
+
+        var hour = String(slot.dataset.hourSlot).padStart(2, '0') + ':00';
+        var date = dayContainer.dataset.rescheduleDate;
+        list.appendChild(card);
+        reschedule(card, date, hour, list, prevParent, prevNext);
+      } else if (slot.hasAttribute('data-day-slot')) {
+        var date2 = slot.dataset.daySlot;
+        var time2 = card.dataset.dueTime || '00:00';
+        slot.appendChild(card);
+        reschedule(card, date2, time2, slot, prevParent, prevNext);
+      }
+    }
+
+    cards.forEach(function (card) {
+      card.addEventListener('pointerdown', function (e) {
+        if (e.button !== undefined && e.button > 0) { return; } // ignore right/middle mouse buttons
+        if (active) { return; }
+
+        active = {
+          card: card,
+          pointerId: e.pointerId,
+          pointerType: e.pointerType,
+          startX: e.clientX,
+          startY: e.clientY,
+          pickedUp: false,
+          holdTimer: null,
+          dropSlot: null,
+        };
+
+        if (e.pointerType !== 'mouse') {
+          active.holdTimer = setTimeout(function () {
+            if (active && active.card === card && !active.pickedUp) { pickUp(); }
+          }, HOLD_MS);
+        }
+      });
+
+      // A drag that actually moved the card must not also fire the card's
+      // (or its <a href> in week view) normal click/navigate behaviour.
+      card.addEventListener('click', function (e) {
+        if (card.dataset.justDragged === '1') {
+          delete card.dataset.justDragged;
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }, true);
+    });
+
+    document.addEventListener('pointermove', function (e) {
+      if (!active || active.pointerId !== e.pointerId) { return; }
+
+      var dx = e.clientX - active.startX;
+      var dy = e.clientY - active.startY;
+
+      if (!active.pickedUp) {
+        if (active.pointerType === 'mouse') {
+          if (Math.hypot(dx, dy) > MOVE_PX) { pickUp(); }
+        } else if (Math.hypot(dx, dy) > CANCEL_PX) {
+          // Moved too far before the hold fired — this is a scroll, not a drag.
+          clearTimeout(active.holdTimer);
+          active = null;
+        }
+        return;
+      }
+
+      e.preventDefault();
+      active.card.style.transform = 'translate(' + dx + 'px, ' + dy + 'px) scale(1.04)';
+
+      clearDropHighlight();
+      active.dropSlot = findDropSlot(e.clientX, e.clientY);
+      if (active.dropSlot) { active.dropSlot.classList.add('is-drop-target'); }
+    }, { passive: false });
+
+    document.addEventListener('pointerup', function (e) {
+      if (!active || active.pointerId !== e.pointerId) { return; }
+
+      var card = active.card;
+      var pickedUp = active.pickedUp;
+      var dropSlot = active.dropSlot;
+      endDrag();
+
+      if (!pickedUp) { return; }
+      card.dataset.justDragged = '1';
+      if (dropSlot) { drop(card, dropSlot); }
+    });
+
+    document.addEventListener('pointercancel', function (e) {
+      if (active && active.pointerId === e.pointerId) { endDrag(); }
+    });
+  })();
 
   // ── Notification bell dropdown ─────────────────────────────────────────
   var bell = document.querySelector('[data-bell-toggle]');

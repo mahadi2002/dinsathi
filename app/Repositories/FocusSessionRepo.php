@@ -33,6 +33,17 @@ final class FocusSessionRepo
         );
     }
 
+    /** Full focus-session history for a user, no limit — used by CSV export. */
+    public function allForUser(int $userId): array
+    {
+        return Db::all(
+            'SELECT fs.*, t.title AS task_title FROM focus_sessions fs
+             LEFT JOIN tasks t ON t.id = fs.task_id
+             WHERE fs.user_id = ? ORDER BY fs.started_at DESC',
+            [$userId]
+        );
+    }
+
     public function countBetween(int $userId, string $fromUtc, string $toUtc): int
     {
         return (int) Db::value(

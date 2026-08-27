@@ -18,7 +18,7 @@ namespace App\Gateways;
  * unit-tested one, checked against RFC 8291's own test vectors) before
  * switching PUSH_GATEWAY away from 'mock'.
  */
-final class WebPushGateway implements PushGateway
+final class WebPushGateway
 {
     public function send(int $userId, array $subscription, string $title, string $body, string $url): array
     {

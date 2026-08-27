@@ -1,7 +1,7 @@
 // দিনসাথী service worker — Web Push only. Core CRUD works without this file;
-// it exists purely so a subscribed user can receive a reminder while the
-// app tab isn't open. See docs/FEATURES.md for why the push payload itself
-// is not yet signed/encrypted in production (PUSH_GATEWAY=mock by default).
+// it exists purely so a user can receive a reminder while the app tab
+// isn't open. See docs/FEATURES.md for why the push payload itself is not
+// yet signed/encrypted in production (PUSH_GATEWAY=mock by default).
 self.addEventListener('install', function (event) {
   self.skipWaiting();
 });

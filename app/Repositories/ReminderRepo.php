@@ -52,21 +52,4 @@ final class ReminderRepo
     {
         Db::exec('UPDATE reminders SET push_status = ? WHERE id = ?', [$status, $id]);
     }
-
-    public function setSmsStatus(int $id, string $status, ?int $incrementAttempts = null): void
-    {
-        if ($incrementAttempts) {
-            Db::exec('UPDATE reminders SET sms_status = ?, sms_attempts = sms_attempts + 1 WHERE id = ?', [$status, $id]);
-        } else {
-            Db::exec('UPDATE reminders SET sms_status = ? WHERE id = ?', [$status, $id]);
-        }
-    }
-
-    public function retryableSms(int $maxAttempts): array
-    {
-        return Db::all(
-            "SELECT * FROM reminders WHERE sms_status = 'retrying' AND sms_attempts < ? LIMIT 200",
-            [$maxAttempts]
-        );
-    }
 }

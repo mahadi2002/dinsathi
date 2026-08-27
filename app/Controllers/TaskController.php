@@ -123,6 +123,7 @@ final class TaskController extends Controller
         }
 
         $dueAt = DateBD::combineToUtc($request->str('due_date'), $request->str('due_time') ?: null);
+        $applyScope = $request->str('apply_scope') === 'future' ? 'future' : 'this_only';
 
         $ok = (new TaskService())->update((int) $id, $userId, [
             'title'               => $v->get('title'),
@@ -131,7 +132,7 @@ final class TaskController extends Controller
             'due_at'              => $dueAt,
             'list_id'             => (int) $v->get('list_id'),
             'reminder_offset_min' => $request->str('reminder_offset_min') !== '' ? $request->int('reminder_offset_min') : null,
-        ]);
+        ], $applyScope);
 
         if (!$ok) {
             $this->notFound();
@@ -141,6 +142,38 @@ final class TaskController extends Controller
 
         Session::notify('success', 'Task Update হয়েছে।');
         return $this->redirect('/app/tasks/' . $id);
+    }
+
+    /**
+     * Drag-to-reschedule from the calendar day/week views — a lightweight
+     * sibling to update() that only ever touches due_at, called via
+     * fetch() PATCH with a JSON body {due_date, due_time}, both Asia/Dhaka
+     * local. Never touches a template row (TaskService::reschedule()
+     * refuses is_template = 1).
+     */
+    public function reschedule(Request $request, string $id): Response
+    {
+        $userId = (int) $this->currentUserId();
+
+        $data = $request->json();
+        $dueDate = isset($data['due_date']) && is_string($data['due_date']) ? trim($data['due_date']) : '';
+        $dueTime = isset($data['due_time']) && is_string($data['due_time']) ? trim($data['due_time']) : null;
+
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dueDate)) {
+            return $this->json(['ok' => false, 'error' => 'তারিখ সঠিক নয়।'], 422);
+        }
+        if ($dueTime !== null && $dueTime !== '' && !preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $dueTime)) {
+            return $this->json(['ok' => false, 'error' => 'সময় সঠিক নয়।'], 422);
+        }
+
+        $dueAtUtc = DateBD::combineToUtc($dueDate, $dueTime);
+        $ok = (new TaskService())->reschedule((int) $id, $userId, $dueAtUtc);
+
+        if (!$ok) {
+            return $this->json(['ok' => false], 404);
+        }
+
+        return $this->json(['ok' => true, 'due_at' => $dueAtUtc]);
     }
 
     public function destroy(Request $request, string $id): Response

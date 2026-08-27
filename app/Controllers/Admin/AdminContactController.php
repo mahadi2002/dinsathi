@@ -6,21 +6,39 @@ namespace App\Controllers\Admin;
 use App\Core\Controller;
 use App\Core\Request;
 use App\Core\Response;
+use App\Core\Session;
+use App\Repositories\ContactMessageRepo;
 
 final class AdminContactController extends Controller
 {
-    /**
-     * Contact messages have no dedicated table (out of 02-SCHEMA.sql's scope
-     * for this build) — they are appended to storage/logs/contact-*.log.
-     * Shown here as a raw tail so support staff have one place to look;
-     * promote to a real `contact_messages` table + states the moment volume
-     * makes a log file impractical.
-     */
     public function index(Request $request): Response
     {
-        $file = APP_ROOT . '/storage/logs/contact-' . date('Y-m-d') . '.log';
-        $tail = is_file($file) ? implode('', array_slice(file($file) ?: [], -100)) : '';
+        $page   = max(1, $request->int('page', 1));
+        $status = $request->str('status');
+        $status = in_array($status, ['new', 'resolved'], true) ? $status : null;
 
-        return $this->view('admin/contact', ['title' => 'Contact Inbox', 'tail' => $tail]);
+        $repo   = new ContactMessageRepo();
+        $result = $repo->paginate($page, 25, $status);
+
+        return $this->view('admin/contact', [
+            'title'    => 'Contact Inbox',
+            'messages' => $result['data'],
+            'total'    => $result['total'],
+            'page'     => $page,
+            'perPage'  => 25,
+            'status'   => $status,
+            'newCount' => $repo->countNew(),
+        ]);
+    }
+
+    public function resolve(Request $request, string $id): Response
+    {
+        $ok = (new ContactMessageRepo())->markResolved((int) $id);
+        if (!$ok) {
+            $this->notFound();
+        }
+
+        Session::notify('success', 'বার্তাটি সমাধান হিসেবে চিহ্নিত হয়েছে।');
+        return $this->back($request, '/admin/contact');
     }
 }

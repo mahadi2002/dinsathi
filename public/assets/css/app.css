@@ -180,7 +180,7 @@ p.mb-0, .mb-0 { margin-block-end: 0 !important; }
   text-decoration: none; line-height: 1.2; white-space: nowrap;
 }
 .btn:hover { text-decoration: none; box-shadow: var(--shadow-sm); transform: translateY(-1px); }
-.btn:active { transform: translateY(0); }
+.btn:active { transform: translateY(0) scale(.97); transition-duration: var(--dur-fast); transition-timing-function: var(--ease-out); }
 .btn--primary, .btn:not(.btn--ghost):not(.btn--accent):not(.btn--danger) { background: var(--gradient-indigo); color: #fff; border-color: transparent; box-shadow: var(--glow-indigo); }
 .btn--accent { background: var(--gradient-amber); color: #241800; border-color: transparent; box-shadow: var(--glow-amber); }
 .btn--ghost { background: transparent; border-color: var(--line); color: var(--ink); }
@@ -446,6 +446,35 @@ a.card--link:hover { text-decoration: none; box-shadow: var(--shadow-md); transf
 .cal-dot { width: .4em; height: .4em; border-radius: 50%; display: inline-block; margin-inline-end: .2em; }
 @media (max-width: 760px) { .cal-week, .cal-month { grid-template-columns: 1fr; } }
 
+/* Drag-to-reschedule: day-view hour slots, week-view day columns, and the
+   shared drag/drop feedback states used by both. */
+.cal-day__slot { display: flex; gap: .8rem; padding: .5rem 0; border-bottom: 1px solid var(--line); transition: background var(--dur-fast); }
+.cal-day__slot:last-child { border-bottom: none; }
+.cal-day__hour { flex-shrink: 0; width: 3.6em; font-family: var(--font-mono); font-size: var(--step--1); color: var(--ink-soft); padding-top: .3rem; }
+.cal-day__tasks { flex: 1; min-height: 2.4rem; display: flex; flex-direction: column; gap: .3rem; border-radius: var(--radius-s); }
+.task-row--draggable { cursor: grab; border-bottom: none; padding: .5rem .5rem; border-radius: var(--radius-s); background: var(--paper-dim); touch-action: none; }
+.task-row--draggable:active { cursor: grabbing; }
+.cal-day__slot.is-drop-target { background: var(--indigo-tint); }
+.cal-week__day[data-day-slot] { transition: background var(--dur-fast), border-color var(--dur-fast); }
+.cal-week__day.is-drop-target { background: var(--indigo-tint); border-color: var(--indigo); }
+.cal-week__task[data-task-card] { cursor: grab; touch-action: none; }
+.cal-week__task[data-task-card]:active { cursor: grabbing; }
+/* Pointer-events drag (mouse, touch and pen alike): scale/shadow "picked
+   up" cue once a drag actually starts (immediately for mouse, after a
+   brief hold for touch/pen — see app.js). pointer-events: none so
+   elementFromPoint() during pointermove finds the slot underneath the
+   lifted card instead of the card itself. */
+[data-task-card].is-picked-up {
+  position: relative; z-index: 30; pointer-events: none;
+  box-shadow: var(--shadow-lg); transition: box-shadow var(--dur-fast);
+  will-change: transform;
+}
+
+/* "This task only / this and future" recurring-edit prompt. */
+.recur-prompt { position: fixed; inset: 0; background: rgba(20,21,31,.45); display: grid; place-items: center; z-index: 60; padding: 1rem; }
+.recur-prompt[hidden] { display: none; }
+.recur-prompt__box { background: var(--card); border-radius: var(--radius); padding: 1.5rem; max-width: 420px; box-shadow: var(--shadow-lg); }
+
 /* --------------------------------------------------------------------------
    16. Focus timer
    -------------------------------------------------------------------------- */
@@ -570,6 +599,21 @@ hr { border: none; border-top: 1px solid var(--line); margin-block: 1.5rem; }
 .swatch-8 { background: #5A6B57; }
 .cal-week__task { display: block; margin-bottom: .3rem; color: inherit; }
 .flame-row--spaced { margin-block: .7rem; }
-.habit-history-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(14px, 1fr)); gap: .35rem; max-width: 600px; }
-.flame-dot--lg { width: 14px; height: 14px; }
 .mb-xl { margin-bottom: 1.5rem; }
+
+/* GitHub-style contribution-grid heatmap (habit history page). Weeks run
+   left→right as columns, Monday..Sunday top→bottom within each column —
+   matches the Mon-first week convention used by the week calendar view. */
+.heatmap-scroll { overflow-x: auto; padding-block-end: .3rem; }
+.heatmap { display: grid; grid-auto-flow: column; gap: 3px; width: max-content; }
+.heatmap__col { display: flex; flex-direction: column; gap: 3px; width: 12px; }
+.heatmap__month-label { height: 1.1em; font-size: var(--step--2); color: var(--ink-soft); white-space: nowrap; }
+.heatmap__cell { width: 12px; height: 12px; border-radius: 3px; background: var(--paper-dim); border: 1px solid var(--line); }
+.heatmap__cell--pad { visibility: hidden; }
+.heatmap__cell--inactive { background: transparent; border-style: dashed; }
+.heatmap__cell--l0 { background: var(--paper-dim); }
+.heatmap__cell--l1 { background: color-mix(in srgb, var(--indigo) 25%, var(--paper-dim)); border-color: transparent; }
+.heatmap__cell--l2 { background: color-mix(in srgb, var(--indigo) 50%, var(--paper-dim)); border-color: transparent; }
+.heatmap__cell--l3 { background: color-mix(in srgb, var(--indigo) 75%, var(--paper-dim)); border-color: transparent; }
+.heatmap__cell--l4 { background: var(--indigo); border-color: transparent; }
+.btn--ghost.btn--active { background: var(--indigo-tint); border-color: var(--indigo); color: var(--indigo); }

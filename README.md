@@ -1,10 +1,10 @@
 # দিনসাথী (DinSathi)
 
-A Bangla-language daily planner and reminder app for Bangladesh — tasks,
-recurring to-dos, lists, a habit tracker with streaks, a focus timer, and a
-daily review, gated behind a ৳2.78/day BDApps micro-subscription for Robi &
-Airtel users. Fourth app in this workspace's series (after GardenBondhu,
-IELTS Master BD, PustiSathi) — same architecture, re-skinned.
+A Bangla-language daily planner and reminder app — tasks, recurring to-dos,
+lists, a habit tracker with streaks, a focus timer, and a daily review.
+Free, login-or-registered access only — no subscription, no billing.
+Fourth app in this workspace's series (after GardenBondhu, IELTS Master BD,
+PustiSathi) — same architecture, re-skinned.
 
 ## Stack
 
@@ -19,7 +19,9 @@ IELTS Master BD, PustiSathi) — same architecture, re-skinned.
 This app follows the same architecture as the rest of the series (see
 `PLAYBOOK.md` in the parent workspace, if you have it checked out
 alongside the other apps — not part of this repo). This app's own locked
-decisions and exact UI copy are in [`01-BUILD-SPEC.md`](01-BUILD-SPEC.md).
+decisions and exact UI copy are in [`01-BUILD-SPEC.md`](01-BUILD-SPEC.md)
+(historical — predates the Phase 1 rebrand/auth rebuild; see
+[`TODO.md`](TODO.md) for what has changed since).
 
 ## Quick start
 
@@ -57,3 +59,7 @@ Full walkthrough, including port conventions and troubleshooting, is in
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
 - [TODO.md](TODO.md)
+
+## License
+
+MIT — see [LICENSE](LICENSE).

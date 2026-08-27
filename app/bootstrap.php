@@ -30,8 +30,8 @@ require_once APP_ROOT . '/app/Core/Helpers.php';
 App\Core\Env::load(APP_ROOT . '/.env');
 
 // Process timezone stays UTC (storage decision); Asia/Dhaka conversion is
-// explicit at the view layer via utc_to_dhaka()/dhaka_to_utc() so no code
-// path can accidentally rely on the ambient zone.
+// explicit at the view layer via Support\DateBD so no code path can
+// accidentally rely on the ambient zone.
 date_default_timezone_set('UTC');
 mb_internal_encoding('UTF-8');
 
@@ -66,9 +66,6 @@ if (strlen((string) config('app.key')) !== 32 || strlen((string) config('app.pep
 if ($env === 'production') {
     if ($isDebug) {
         $fatal('APP_DEBUG must be false when APP_ENV=production.');
-    }
-    if (config('gateway.driver') === 'mock') {
-        $fatal('SUBSCRIPTION_GATEWAY=mock is blocked when APP_ENV=production.');
     }
 }
 
@@ -122,7 +119,3 @@ register_shutdown_function(static function (): void {
 
 // ── Values every view can rely on ──────────────────────────────────────
 App\Core\View::share('appName', (string) config('app.name'));
-App\Core\View::share('dailyAmount', number_format((float) config('gateway.plans.planner.amount', 2.78), 2));
-App\Core\View::share('smsAmount', number_format((float) config('gateway.plans.sms_reminders.amount', 1.00), 2));
-App\Core\View::share('shortcode', (string) config('gateway.shortcode'));
-App\Core\View::share('operatorNote', (string) config('operators.display_note'));

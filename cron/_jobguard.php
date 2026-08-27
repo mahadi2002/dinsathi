@@ -6,9 +6,9 @@ use App\Support\DateBD;
 
 /**
  * "Have I already run today" guard against the `jobs` table, so daily-only
- * jobs (GenerateRecurringInstances, CheckSubscriptionExpiry, cleanup, the
- * evening streak-risk check) can share one per-minute crontab line with the
- * minute-granularity jobs instead of needing their own entry.
+ * jobs (GenerateRecurringInstances, Cleanup, the evening streak-risk check)
+ * can share one per-minute crontab line with the minute-granularity jobs
+ * instead of needing their own entry.
  */
 function job_already_ran_today(string $jobName): bool
 {
@@ -23,7 +23,7 @@ function job_already_ran_today(string $jobName): bool
 function job_mark_done(string $jobName): void
 {
     Db::insert(
-        "INSERT INTO jobs (job_name, status, run_at, finished_at) VALUES (?, 'done', UTC_TIMESTAMP(), UTC_TIMESTAMP())",
+        "INSERT INTO jobs (job_name, status, run_at, finished_at) VALUES (?, 'done', now(), now())",
         [$jobName]
     );
 }
@@ -31,7 +31,7 @@ function job_mark_done(string $jobName): void
 function job_mark_failed(string $jobName, string $error): void
 {
     Db::insert(
-        "INSERT INTO jobs (job_name, status, run_at, finished_at, error) VALUES (?, 'failed', UTC_TIMESTAMP(), UTC_TIMESTAMP(), ?)",
+        "INSERT INTO jobs (job_name, status, run_at, finished_at, error) VALUES (?, 'failed', now(), now(), ?)",
         [$jobName, $error]
     );
 }

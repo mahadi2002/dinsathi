@@ -25,11 +25,10 @@ final class Db
 
         $c   = config('database');
         $dsn = sprintf(
-            'mysql:host=%s;port=%d;dbname=%s;charset=%s',
+            'mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
             $c['host'],
             $c['port'],
-            $c['name'],
-            $c['charset']
+            $c['name']
         );
 
         self::$pdo = new PDO($dsn, $c['user'], $c['pass'], [
@@ -114,15 +113,6 @@ final class Db
             }
             throw $e;
         }
-    }
-
-    /**
-     * Build a positional IN(...) placeholder list. The caller merges $values
-     * into its parameter array in the same order.
-     */
-    public static function placeholders(array $values): string
-    {
-        return implode(',', array_fill(0, max(1, count($values)), '?'));
     }
 
     public static function nowUtc(): string

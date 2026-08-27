@@ -21,14 +21,6 @@ final class TaskService
      */
     public function create(int $userId, array $input): array
     {
-        // Every route that reaches here already sits behind the 'sub' (planner)
-        // middleware — there is no free path — but this stays a real query, not
-        // an assumption, since a service method shouldn't trust its caller alone.
-        $subscribed = SubscriptionService::hasAccess($userId);
-        if (!$subscribed) {
-            return ['ok' => false, 'error' => 'Planner ব্যবহার করতে Subscribe করুন।'];
-        }
-
         $recurrenceRule = $input['recurrence_rule'] ?? null;
         if ($recurrenceRule !== null && !RRuleLite::isValid($recurrenceRule)) {
             return ['ok' => false, 'error' => 'Recurrence-এর ধরন সঠিক নয়।'];
@@ -69,17 +61,29 @@ final class TaskService
         return ['ok' => true, 'id' => $id];
     }
 
-    public function update(int $id, int $userId, array $input): bool
+    /**
+     * $applyScope only matters when editing a recurring template
+     * (is_template = 1): 'this_only' (default) touches just the template
+     * row itself — already-generated instances, past or future, are left
+     * exactly as they were, only *newly* generated instances beyond the
+     * horizon pick up the change. 'future' additionally cascades the
+     * editable fields onto every already-generated future, incomplete
+     * instance — the "this and following" half of the Google-Calendar-style
+     * prompt in views/app/task-show.php. Matches 01-BUILD-SPEC.md §8.
+     */
+    public function update(int $id, int $userId, array $input, string $applyScope = 'this_only'): bool
     {
         $existing = $this->tasks->find($id, $userId);
         if ($existing === null) {
             return false;
         }
 
+        $priority = $this->validPriority($input['priority'] ?? null);
+
         $this->tasks->update($id, $userId, [
             'title'               => $input['title'],
             'notes'               => $input['notes'] ?? null,
-            'priority'            => $this->validPriority($input['priority'] ?? null),
+            'priority'            => $priority,
             'due_at'              => $input['due_at'] ?? null,
             'list_id'             => $input['list_id'],
             'recurrence_rule'     => (int) $existing['is_template'] === 1 ? $existing['recurrence_rule'] : null,
@@ -87,7 +91,41 @@ final class TaskService
         ]);
 
         $updated = $this->tasks->find($id, $userId);
-        if ($updated !== null && (int) $updated['is_template'] === 0) {
+        if ($updated === null) {
+            return true;
+        }
+
+        if ((int) $updated['is_template'] === 1) {
+            if ($applyScope === 'future') {
+                $affected = $this->tasks->cascadeToFutureInstances($id, $userId, [
+                    'title'               => $updated['title'],
+                    'notes'               => $updated['notes'],
+                    'priority'            => $updated['priority'],
+                    'reminder_offset_min' => $updated['reminder_offset_min'],
+                ]);
+                foreach ($affected as $instance) {
+                    $this->reminders->scheduleForTask($instance);
+                }
+            }
+        } else {
+            $this->reminders->scheduleForTask($updated);
+        }
+
+        return true;
+    }
+
+    /** Drag-to-reschedule (calendar day/week views) — moves due_at only, keeps everything else on the task untouched. */
+    public function reschedule(int $id, int $userId, ?string $dueAtUtc): bool
+    {
+        $existing = $this->tasks->find($id, $userId);
+        if ($existing === null || (int) $existing['is_template'] === 1) {
+            return false;
+        }
+
+        $this->tasks->updateDueAt($id, $userId, $dueAtUtc);
+
+        $updated = $this->tasks->find($id, $userId);
+        if ($updated !== null) {
             $this->reminders->scheduleForTask($updated);
         }
 

@@ -7,25 +7,22 @@ use App\Core\Controller;
 use App\Core\Request;
 use App\Core\Response;
 use App\Core\Session;
+use App\Repositories\FocusSessionRepo;
+use App\Repositories\HabitLogRepo;
 use App\Repositories\PushSubscriptionRepo;
-use App\Repositories\TaskListRepo;
 use App\Repositories\TaskRepo;
 use App\Repositories\UserRepo;
-use App\Services\SubscriptionService;
+use App\Support\DateBD;
 
 final class SettingsController extends Controller
 {
     public function index(Request $request): Response
     {
         $userId = (int) $this->currentUserId();
-        $subs   = SubscriptionService::currentBoth($userId);
 
         return $this->view('app/settings', [
             'title'       => 'Settings',
             'user'        => (new UserRepo())->find($userId),
-            'planner'     => $subs['planner'],
-            'sms'         => $subs['sms_reminders'],
-            'smsActive'   => SubscriptionService::hasSmsAccess($userId),
             'vapidPublic' => (string) config('push.vapid_public'),
         ]);
     }
@@ -37,7 +34,6 @@ final class SettingsController extends Controller
             $userId,
             $this->validTime($request->str('push_quiet_start'), '22:00'),
             $this->validTime($request->str('push_quiet_end'), '07:00'),
-            $request->bool('sms_reminders_on')
         );
         Session::notify('success', 'Settings সংরক্ষণ হয়েছে।');
         return $this->redirect('/app/settings');
@@ -79,24 +75,31 @@ final class SettingsController extends Controller
 
     public function pushUnsubscribe(Request $request): Response
     {
-        $data = $request->json();
+        $userId   = (int) $this->currentUserId();
+        $data     = $request->json();
         $endpoint = (string) ($data['endpoint'] ?? '');
         if ($endpoint !== '') {
-            (new PushSubscriptionRepo())->deleteByEndpoint($endpoint);
+            (new PushSubscriptionRepo())->deleteByEndpoint($endpoint, $userId);
         }
         return $this->json(['ok' => true]);
     }
 
+    /**
+     * One CSV, three sections (Tasks / Habit History / Focus Sessions),
+     * separated by a blank line and their own header row — simplest way to
+     * cover everything exportable without asking the user to pick a type
+     * or shipping three separate downloads.
+     */
     public function export(Request $request): Response
     {
         $userId = (int) $this->currentUserId();
-        $tasks  = (new TaskRepo())->forList($userId, null);
 
         $csv = fopen('php://temp', 'w+');
-        fputcsv($csv, ['Title', 'List', 'Priority', 'Due (Asia/Dhaka)', 'Completed', 'Notes']);
 
-        foreach ($tasks as $t) {
-            $due = \App\Support\DateBD::toDhaka((string) $t['due_at']);
+        fputcsv($csv, ['Tasks']);
+        fputcsv($csv, ['Title', 'List', 'Priority', 'Due (Asia/Dhaka)', 'Completed', 'Notes']);
+        foreach ((new TaskRepo())->forList($userId, null) as $t) {
+            $due = DateBD::toDhaka((string) $t['due_at']);
             fputcsv($csv, [
                 $this->csvSafe((string) $t['title']),
                 $this->csvSafe((string) $t['list_name']),
@@ -107,11 +110,37 @@ final class SettingsController extends Controller
             ]);
         }
 
+        fputcsv($csv, []);
+        fputcsv($csv, ['Habit History']);
+        fputcsv($csv, ['Habit', 'Date', 'Completed', 'Quantity', 'Target', 'Unit']);
+        foreach ((new HabitLogRepo())->allForUser($userId) as $h) {
+            fputcsv($csv, [
+                $this->csvSafe((string) $h['habit_name']),
+                (string) $h['log_date'],
+                $h['completed'] == 1 ? 'Yes' : 'No',
+                $h['quantity'] !== null ? (string) $h['quantity'] : '',
+                $h['target_quantity'] !== null ? (string) $h['target_quantity'] : '',
+                $this->csvSafe((string) ($h['unit'] ?? '')),
+            ]);
+        }
+
+        fputcsv($csv, []);
+        fputcsv($csv, ['Focus Sessions']);
+        fputcsv($csv, ['Task', 'Started (Asia/Dhaka)', 'Duration (min)']);
+        foreach ((new FocusSessionRepo())->allForUser($userId) as $f) {
+            $started = DateBD::toDhaka((string) $f['started_at']);
+            fputcsv($csv, [
+                $this->csvSafe((string) ($f['task_title'] ?? '')),
+                $started?->format('Y-m-d H:i') ?? '',
+                (string) round(((int) $f['duration_sec']) / 60, 1),
+            ]);
+        }
+
         rewind($csv);
         $body = (string) stream_get_contents($csv);
         fclose($csv);
 
         return \App\Core\Response::text($body, 200, 'text/csv')
-            ->withHeader('Content-Disposition', 'attachment; filename="dinsathi-tasks.csv"');
+            ->withHeader('Content-Disposition', 'attachment; filename="prohor-export.csv"');
     }
 }

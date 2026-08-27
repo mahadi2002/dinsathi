@@ -18,11 +18,8 @@ return [
         'secure'        => (bool) env('SESSION_SECURE', true),
     ],
 
-    'otp' => [
-        'length'          => (int) env('OTP_LENGTH', 6),
-        'ttl'             => (int) env('OTP_TTL_SECONDS', 300),
-        'max_attempts'    => (int) env('OTP_MAX_ATTEMPTS', 3),
-        'resend_cooldown' => (int) env('OTP_RESEND_COOLDOWN', 60),
+    'password_reset' => [
+        'ttl' => (int) env('PASSWORD_RESET_TTL_SECONDS', 3600),
     ],
 
     'admin_ip_allowlist' => array_values(array_filter(array_map(
@@ -31,8 +28,6 @@ return [
     ))),
 
     'log_level' => env('LOG_LEVEL', 'info'),
-
-    'support_email' => env('SUPPORT_EMAIL', ''),
 
     'quiet_hours' => [
         'start' => env('QUIET_HOURS_START', '22:00:00'),

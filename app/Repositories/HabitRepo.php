@@ -22,11 +22,15 @@ final class HabitRepo
         return Db::first('SELECT * FROM habits WHERE id = ? AND user_id = ?', [$id, $userId]);
     }
 
-    public function create(int $userId, string $name, ?string $icon, string $activeDays): int
+    /**
+     * $targetQuantity/$unit stay null for a plain boolean check-in habit —
+     * set both to make it a quantity habit (e.g. target 8, unit "glasses").
+     */
+    public function create(int $userId, string $name, ?string $icon, string $activeDays, ?int $targetQuantity = null, ?string $unit = null): int
     {
         return Db::insert(
-            'INSERT INTO habits (user_id, name, icon, active_days) VALUES (?, ?, ?, ?)',
-            [$userId, $name, $icon, $activeDays]
+            'INSERT INTO habits (user_id, name, icon, active_days, target_quantity, unit) VALUES (?, ?, ?, ?, ?, ?)',
+            [$userId, $name, $icon, $activeDays, $targetQuantity, $unit]
         );
     }
 

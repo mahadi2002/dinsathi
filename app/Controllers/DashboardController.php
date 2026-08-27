@@ -12,7 +12,6 @@ use App\Repositories\TaskListRepo;
 use App\Repositories\TaskRepo;
 use App\Repositories\UserRepo;
 use App\Services\HabitService;
-use App\Services\SubscriptionService;
 use App\Support\DateBD;
 
 final class DashboardController extends Controller
@@ -49,7 +48,6 @@ final class DashboardController extends Controller
         return $this->view('app/dashboard', [
             'title'         => 'ড্যাশবোর্ড',
             'user'          => $user,
-            'smsActive'     => SubscriptionService::hasSmsAccess($userId),
             'today'         => $today,
             'todayTasks'    => $todayTasks,
             'overdueTasks'  => $overdue,

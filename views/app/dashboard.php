@@ -1,6 +1,6 @@
 <?php
 /**
- * @var array $user @var bool $smsActive @var string $today
+ * @var array $user @var string $today
  * @var array $todayTasks @var array $overdueTasks @var int $doneCount @var int $totalCount
  * @var array $habits @var array $lists @var array $notifications
  */
@@ -15,12 +15,6 @@ $pct = $totalCount > 0 ? pct_step((float) $doneCount, (float) $totalCount) : 0;
   <h1>স্বাগতম<?= !empty($user['display_name']) ? ', ' . e($user['display_name']) : '' ?></h1>
   <p class="muted"><?= e(bn_date($today)) ?> — আজকের পরিকল্পনা নিচে দেখুন।</p>
 </div>
-
-<?php if (!$smsActive): ?>
-  <div class="notice notice--info">
-    <span>Push Notification-এর পাশাপাশি SMS-এও Reminder পেতে <a href="/subscribe/sms">SMS Reminder Add-on চালু করুন</a> — Daily ৳<?= e($smsAmount) ?> (Incl. VAT, SD &amp; SC)।</span>
-  </div>
-<?php endif; ?>
 
 <div class="grid grid--2">
   <div class="card">
@@ -56,7 +50,7 @@ $pct = $totalCount > 0 ? pct_step((float) $doneCount, (float) $totalCount) : 0;
             <?php if ($task['completed_at'] !== null): ?>✓<?php endif; ?>
           </button>
           <div class="task-row__label">
-            <strong class="<?= $task['completed_at'] !== null ? 'task-title--done' : '' ?>"><?= e((string) $task['title']) ?></strong>
+            <strong data-toggle-title class="<?= $task['completed_at'] !== null ? 'task-title--done' : '' ?>"><?= e((string) $task['title']) ?></strong>
             <span class="small muted"><?= $task['due_at'] !== null ? e(DateBD::toDhaka((string) $task['due_at'])?->format('h:i A')) : 'সময় নির্ধারিত নয়' ?></span>
           </div>
           <span class="chip chip--<?= e((string) $task['priority']) ?>"><?= e($priorityLabel[$task['priority']] ?? '') ?></span>
@@ -84,12 +78,20 @@ $pct = $totalCount > 0 ? pct_step((float) $doneCount, (float) $totalCount) : 0;
             </div>
           </div>
           <span class="streak-badge">🔥 <?= e(bn_num($habit['streak'])) ?></span>
-          <form method="post" action="/app/habits/<?= e((string) $habit['id']) ?>/checkin" data-guard>
-            <?= csrf_field() ?>
-            <button class="btn btn--sm <?= $habit['done_today'] ? 'btn--accent' : '' ?>" type="submit">
+          <?php if (($habit['target_quantity'] ?? null) === null): ?>
+            <button class="btn btn--sm <?= $habit['done_today'] ? 'btn--accent' : '' ?>" type="button"
+                    data-toggle-url="/app/habits/<?= e((string) $habit['id']) ?>/checkin" data-toggle-mode="label"
+                    data-toggle-done-class="btn--accent" data-toggle-done-text="✓" data-toggle-undone-text="Check-in">
               <?= $habit['done_today'] ? '✓' : 'Check-in' ?>
             </button>
-          </form>
+          <?php else: ?>
+            <form method="post" action="/app/habits/<?= e((string) $habit['id']) ?>/checkin" data-guard>
+              <?= csrf_field() ?>
+              <button class="btn btn--sm <?= $habit['done_today'] ? 'btn--accent' : '' ?>" type="submit">
+                <?= $habit['done_today'] ? '✓' : '+১' ?>
+              </button>
+            </form>
+          <?php endif; ?>
         </div>
       <?php endforeach; ?>
       <p class="mb-0 mt-sm"><a href="/app/habits">সব Habit দেখুন →</a></p>

@@ -6,17 +6,14 @@ namespace App\Middleware;
 use App\Core\Request;
 use App\Core\Response;
 use App\Core\Session;
-use App\Services\SubscriptionService;
 
-/** Keeps signed-in users out of the register/login funnel. */
+/** Keeps signed-in users out of the register/login/password-reset funnel. */
 final class GuestOnly implements Middleware
 {
     public function handle(Request $request, callable $next): Response
     {
-        $userId = Session::userId();
-
-        if ($userId !== null) {
-            return Response::redirect(SubscriptionService::hasAccess($userId) ? '/app' : '/subscribe');
+        if (Session::userId() !== null) {
+            return Response::redirect('/app');
         }
 
         return $next();

@@ -55,13 +55,33 @@ if (!function_exists('url')) {
 }
 
 if (!function_exists('asset')) {
-    /** Cache-busted asset URL. Assets are cached for a year, so the mtime matters. */
+    /**
+     * Cache-busted asset URL. Assets are cached for a year, so the mtime matters.
+     *
+     * app.css/app.js are the two files `npm run build` bundles into
+     * public/assets/dist/ (see vite.config.js, scripts/build-css.mjs) — this
+     * prefers that built output when present, and falls back to the
+     * hand-written source in public/assets/ otherwise (fresh checkout
+     * before `npm install && npm run build`, or any other asset path,
+     * which is never built and always comes from source). Either way the
+     * app runs with zero Node dependency at request time.
+     */
     function asset(string $path): string
     {
-        $path = '/assets/' . ltrim($path, '/');
-        $file = APP_ROOT . '/public' . $path;
-        $ver  = is_file($file) ? (string) filemtime($file) : '1';
-        return $path . '?v=' . $ver;
+        $path = ltrim($path, '/');
+        $base = basename($path);
+
+        if ($base === 'app.js' || $base === 'app.css') {
+            $distFile = APP_ROOT . '/public/assets/dist/' . $base;
+            if (is_file($distFile)) {
+                return '/assets/dist/' . $base . '?v=' . filemtime($distFile);
+            }
+        }
+
+        $srcPath = '/assets/' . $path;
+        $srcFile = APP_ROOT . '/public' . $srcPath;
+        $ver     = is_file($srcFile) ? (string) filemtime($srcFile) : '1';
+        return $srcPath . '?v=' . $ver;
     }
 }
 
@@ -116,45 +136,6 @@ if (!function_exists('bn_date_utc')) {
     {
         $dhaka = \App\Support\DateBD::toDhaka($utc);
         return $dhaka === null ? '—' : bn_date($dhaka->format('Y-m-d H:i:s'), $withTime);
-    }
-}
-
-if (!function_exists('dhaka_now')) {
-    /** Current Asia/Dhaka datetime string, used to convert a UTC column at the view layer. */
-    function dhaka_now(): DateTimeImmutable
-    {
-        return new DateTimeImmutable('now', new DateTimeZone('Asia/Dhaka'));
-    }
-}
-
-if (!function_exists('utc_to_dhaka')) {
-    /** A UTC 'Y-m-d H:i:s' string (as stored) → Asia/Dhaka DateTimeImmutable. */
-    function utc_to_dhaka(?string $utc): ?DateTimeImmutable
-    {
-        if (!$utc) {
-            return null;
-        }
-        try {
-            return (new DateTimeImmutable($utc, new DateTimeZone('UTC')))->setTimezone(new DateTimeZone('Asia/Dhaka'));
-        } catch (Exception) {
-            return null;
-        }
-    }
-}
-
-if (!function_exists('dhaka_to_utc')) {
-    /** A local Asia/Dhaka 'Y-m-d H:i' string from a datetime-local input → UTC 'Y-m-d H:i:s' for storage. */
-    function dhaka_to_utc(?string $local): ?string
-    {
-        if (!$local) {
-            return null;
-        }
-        try {
-            $dt = new DateTimeImmutable($local, new DateTimeZone('Asia/Dhaka'));
-            return $dt->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
-        } catch (Exception) {
-            return null;
-        }
     }
 }
 
@@ -230,17 +211,6 @@ if (!function_exists('list_color_class')) {
         $palette = (array) config('planner.list_colors', []);
         $index = array_search($hex, $palette, true);
         return 'swatch-' . ($index === false ? 0 : $index + 1);
-    }
-}
-
-if (!function_exists('mask_msisdn')) {
-    /** 01712345678 → 017XXXXX78 — the only form a phone number takes in admin list views. */
-    function mask_msisdn(string $msisdn): string
-    {
-        if (strlen($msisdn) !== 11) {
-            return $msisdn;
-        }
-        return substr($msisdn, 0, 3) . 'XXXXX' . substr($msisdn, -2);
     }
 }
 

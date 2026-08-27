@@ -4,22 +4,23 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Core\Db;
-use App\Gateways\GatewayFactory;
+use App\Gateways\MockPushGateway;
 use App\Repositories\PushSubscriptionRepo;
 use App\Repositories\ReminderRepo;
-use App\Repositories\SmsLogRepo;
 use App\Repositories\TaskRepo;
 use App\Repositories\UserRepo;
 use App\Support\DateBD;
 
 /**
- * Two independent delivery channels driven by one `reminders` row — a
- * reminder is "dispatched" per channel, tracked separately, so a failed
- * SMS never blocks push and vice versa.
+ * Push-only reminder dispatch. SMS delivery (and the paid sms_reminders
+ * add-on it used to require) has been removed entirely — every reminder
+ * fans out through MockPushGateway only. The real Web Push crypto
+ * implementation is a later phase (see WebPushGateway); MockPushGateway
+ * (writes an in-app `notifications` row) is what runs today.
  */
 final class ReminderService
 {
-    /** Insert (or replace) the pending reminder for a task's due time, subscribed users only. */
+    /** Insert (or replace) the pending reminder for a task's due time. */
     public function scheduleForTask(array $task): void
     {
         $repo = new ReminderRepo();
@@ -28,12 +29,9 @@ final class ReminderService
         if ($task['due_at'] === null || $task['reminder_offset_min'] === null) {
             return;
         }
-        if (!SubscriptionService::hasAccess((int) $task['user_id'])) {
-            return;
-        }
 
         $fireAt = Db::value(
-            'SELECT DATE_SUB(?, INTERVAL ? MINUTE)',
+            'SELECT CAST(? AS DATETIME) - INTERVAL ? MINUTE',
             [$task['due_at'], (int) $task['reminder_offset_min']]
         );
 
@@ -48,7 +46,7 @@ final class ReminderService
     /**
      * Run by cron/run_jobs.php every minute. Claims each due reminder with a
      * row lock (idempotency — two overlapping cron runs can't double-send),
-     * then fans out to push + SMS independently.
+     * then dispatches push.
      */
     public function dispatchDue(): array
     {
@@ -103,13 +101,6 @@ final class ReminderService
         }
 
         $this->dispatchPush((int) $reminder['id'], (int) $user['id'], $title, $body);
-
-        // Push is bundled into the planner plan; SMS is the separate paid
-        // add-on (it costs real money per message) — both the user's own
-        // toggle AND an active sms_reminders subscription are required.
-        if ((int) $user['sms_reminders_on'] === 1 && SubscriptionService::hasSmsAccess((int) $user['id'])) {
-            $this->dispatchSms((int) $reminder['id'], (string) $user['mobile_number'], $title, $body);
-        }
     }
 
     private function dispatchPush(int $reminderId, int $userId, string $title, string $body): void
@@ -122,7 +113,7 @@ final class ReminderService
             return;
         }
 
-        $gateway  = GatewayFactory::push();
+        $gateway  = new MockPushGateway();
         $anySent  = false;
 
         foreach ($subs as $sub) {
@@ -135,50 +126,6 @@ final class ReminderService
         }
 
         (new ReminderRepo())->setPushStatus($reminderId, $anySent ? 'sent' : 'failed');
-    }
-
-    private function dispatchSms(int $reminderId, string $mobile, string $title, string $body): void
-    {
-        $message = "DinSathi: {$title} — {$body}. অ্যাপ খুলুন: dinsathi.app/app";
-        if (mb_strlen($message, 'UTF-8') > 160) {
-            $message = mb_substr($message, 0, 157, 'UTF-8') . '...';
-        }
-
-        $result = GatewayFactory::sms()->send($mobile, $message);
-        $status = $result['success'] ? 'sent' : 'failed';
-
-        (new SmsLogRepo())->create($reminderId, $mobile, $message, config('sms.driver') === 'provider' ? 'provider' : 'mock', $status, $result['response'] ?? []);
-        (new ReminderRepo())->setSmsStatus($reminderId, $result['success'] ? 'sent' : 'retrying', 1);
-    }
-
-    /** Retries reminders stuck in sms_status='retrying', capped at 3 attempts with 5-minute backoff (handled by cron cadence). */
-    public function retrySmsFailures(): int
-    {
-        $reminderRepo = new ReminderRepo();
-        $userRepo     = new UserRepo();
-        $taskRepo     = new TaskRepo();
-        $retried      = 0;
-
-        foreach ($reminderRepo->retryableSms(3) as $reminder) {
-            $user = $userRepo->find((int) $reminder['user_id']);
-            if ($user === null || (int) $user['sms_reminders_on'] !== 1) {
-                continue;
-            }
-            if (!SubscriptionService::hasSmsAccess((int) $user['id'])) {
-                continue;
-            }
-
-            $title = 'রিমাইন্ডার';
-            if ($reminder['source_type'] === 'task') {
-                $task = $taskRepo->find((int) $reminder['source_id'], (int) $user['id']);
-                $title = $task['title'] ?? $title;
-            }
-
-            $this->dispatchSms((int) $reminder['id'], (string) $user['mobile_number'], $title, 'রিমাইন্ডার পুনরায় পাঠানো হচ্ছে');
-            $retried++;
-        }
-
-        return $retried;
     }
 
     private function nextQuietWindowEnd(string $quietEndHis): string

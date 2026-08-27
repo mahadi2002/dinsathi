@@ -17,12 +17,15 @@ $dayLabels = ['সোম', 'মঙ্গল', 'বুধ', 'বৃহঃ', 'শ�
   <a class="btn btn--ghost btn--sm" href="/app/week/<?= e($nextDate) ?>">পরের সপ্তাহ →</a>
 </div>
 
+<p class="small muted mb-sm">অন্য দিনে সরাতে একটি Task ধরে টেনে অন্য কলামে ছাড়ুন (সময় অপরিবর্তিত থাকবে)।</p>
 <div class="cal-week">
   <?php $i = 0; foreach ($days as $date => $tasks): ?>
-    <div class="cal-week__day">
+    <div class="cal-week__day" data-day-slot="<?= e($date) ?>">
       <h4><a class="text-inherit" href="/app/day/<?= e($date) ?>"><?= e($dayLabels[$i++]) ?> · <?= e(bn_num((int) substr($date, 8, 2))) ?></a></h4>
       <?php foreach ($tasks as $t): ?>
-        <a href="/app/tasks/<?= e((string) $t['id']) ?>" class="small cal-week__task">
+        <a href="/app/tasks/<?= e((string) $t['id']) ?>" class="small cal-week__task"
+           data-task-card data-task-id="<?= e((string) $t['id']) ?>"
+           data-due-time="<?= e(\App\Support\DateBD::toDhaka((string) $t['due_at'])?->format('H:i') ?? '00:00') ?>">
           <span class="cal-dot <?= e(list_color_class((string) $t['list_color'])) ?>"></span><?= e((string) $t['title']) ?>
         </a>
       <?php endforeach; ?>

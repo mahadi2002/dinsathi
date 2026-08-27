@@ -45,7 +45,7 @@ final class Logger
         ]);
     }
 
-    /** MockGateway/MockSmsGateway write generated OTPs and SMS bodies here in dev only. */
+    /** Appends a timestamped line to a named log channel file under storage/logs. */
     public static function channel(string $channel, string $message): void
     {
         self::append($channel, date('c') . ' ' . $message . PHP_EOL);

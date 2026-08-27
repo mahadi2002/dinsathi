@@ -34,7 +34,6 @@ final class AdminUserController extends Controller
             $this->notFound();
         }
 
-        $subs = Db::all('SELECT * FROM subscriptions WHERE user_id = ? ORDER BY id DESC', [$id]);
         $taskCount = (int) Db::value('SELECT COUNT(*) FROM tasks WHERE user_id = ? AND is_template = 0', [$id]);
         $habitCount = (int) Db::value('SELECT COUNT(*) FROM habits WHERE user_id = ?', [$id]);
 
@@ -48,7 +47,6 @@ final class AdminUserController extends Controller
         return $this->view('admin/users/show', [
             'title'      => 'User #' . $id,
             'user'       => $user,
-            'subs'       => $subs,
             'taskCount'  => $taskCount,
             'habitCount' => $habitCount,
         ]);

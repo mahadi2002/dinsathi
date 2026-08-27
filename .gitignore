@@ -14,3 +14,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Vite/esbuild build tooling (see package.json, vite.config.js)
+node_modules/
+public/assets/dist/

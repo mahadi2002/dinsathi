@@ -40,12 +40,15 @@
   hour. This bug shipped once during this build (task due-times showed as
   noon instead of 6pm) and was caught by browser-testing the actual task
   card, not by code review — see docs/DEVELOPMENT.md's testing note.
-- **The gateway pattern.** `SubscriptionGateway`, `SmsGateway`, and
-  `PushGateway` are interfaces behind a `GatewayFactory`, selected by env
-  var. `MockGateway`/`MockSmsGateway`/`MockPushGateway` are what every
-  environment actually runs today; `BdAppsGateway`/`SmsGatewayAdapter`/
-  `WebPushGateway` are stubs that throw until real integration details
-  exist (see docs/FEATURES.md's Known Open Items).
+- **Push notifications.** `ReminderService` calls `MockPushGateway`
+  directly — every environment actually runs the mock today.
+  `WebPushGateway` is scaffolding that throws until real VAPID/RFC 8291
+  crypto is implemented (see TODO.md); the driver-selection factory that
+  used to sit between them was removed since the real gateway had no
+  working code path to select. Restore a factory if/when `WebPushGateway`
+  becomes real. The subscription/SMS/OTP gateways this section used to
+  describe (`SubscriptionGateway`, `SmsGateway`, `BdAppsGateway`,
+  `SmsGatewayAdapter`) were deleted along with carrier billing.
 - **CSP has no `unsafe-inline`**, on scripts or styles. Every dynamic value
   a view needs goes through a pre-generated CSS utility class
   (`.progress-N`, `.swatch-N`, `.mt-sm`, ...) instead of `style=""`, and

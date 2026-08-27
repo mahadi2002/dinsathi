@@ -15,9 +15,15 @@ $doneCount = count(array_filter($subtasks, static fn($s) => $s['completed_at'] !
 <div class="grid grid--2">
   <div class="card">
     <h2 class="card__title">Task Edit করুন</h2>
-    <form method="post" action="/app/tasks/<?= e((string) $task['id']) ?>" data-guard>
+    <?php if ((int) $task['is_template'] === 1): ?>
+      <p class="small muted">এটি একটি পুনরাবৃত্ত (Recurring) Task-এর Template। Save করার আগে জিজ্ঞাসা করা হবে এটি শুধু Template-এ, নাকি ভবিষ্যতের Task-গুলোতেও প্রয়োগ করবেন।</p>
+    <?php endif; ?>
+    <form method="post" action="/app/tasks/<?= e((string) $task['id']) ?>" data-guard<?= (int) $task['is_template'] === 1 ? ' data-recurring-form' : '' ?>>
       <?= csrf_field() ?>
       <input type="hidden" name="_method" value="PATCH">
+      <?php if ((int) $task['is_template'] === 1): ?>
+        <input type="hidden" name="apply_scope" value="this_only" data-apply-scope>
+      <?php endif; ?>
 
       <div class="field <?= error_for('title') ? 'has-error' : '' ?>">
         <label for="title">শিরোনাম</label>
@@ -77,6 +83,20 @@ $doneCount = count(array_filter($subtasks, static fn($s) => $s['completed_at'] !
     </form>
   </div>
 
+  <?php if ((int) $task['is_template'] === 1): ?>
+    <div class="recur-prompt" data-recur-prompt hidden>
+      <div class="recur-prompt__box">
+        <h3 class="card__title">পরিবর্তন কীভাবে প্রয়োগ করবেন?</h3>
+        <p class="small muted">এটি একটি Recurring Task-এর Template — Google Calendar-এর মতোই, এই পরিবর্তন শুধু Template-এ রাখবেন নাকি ইতিমধ্যে তৈরি হওয়া ভবিষ্যতের Task-গুলোতেও (অতীতেরগুলো কখনো বদলায় না) প্রয়োগ করবেন?</p>
+        <div class="cluster mt-md">
+          <button type="button" class="btn btn--ghost btn--sm" data-recur-choice="this_only">শুধু এই Template</button>
+          <button type="button" class="btn btn--primary btn--sm" data-recur-choice="future">এই এবং ভবিষ্যতের সব</button>
+        </div>
+        <button type="button" class="btn btn--ghost btn--sm mt-sm" data-recur-cancel>বাতিল</button>
+      </div>
+    </div>
+  <?php endif; ?>
+
   <div class="card">
     <div class="between">
       <h2 class="card__title mb-0">Subtasks / Checklist</h2>
@@ -89,7 +109,7 @@ $doneCount = count(array_filter($subtasks, static fn($s) => $s['completed_at'] !
                 data-toggle-url="/app/subtasks/<?= e((string) $sub['id']) ?>/toggle" aria-label="সম্পন্ন করুন">
           <?php if ($sub['completed_at'] !== null): ?>✓<?php endif; ?>
         </button>
-        <span class="<?= $sub['completed_at'] !== null ? 'task-title--done' : '' ?>"><?= e((string) $sub['title']) ?></span>
+        <span data-toggle-title class="<?= $sub['completed_at'] !== null ? 'task-title--done' : '' ?>"><?= e((string) $sub['title']) ?></span>
       </div>
     <?php endforeach; ?>
     <?php if ($subtasks === []): ?><p class="muted small">এখনো কোনো Subtask নেই।</p><?php endif; ?>

@@ -11,6 +11,11 @@
 -- planner plan.
 
 ALTER TABLE subscriptions
-  ADD COLUMN plan ENUM('planner','sms_reminders') NOT NULL DEFAULT 'planner' AFTER user_id,
-  DROP INDEX idx_user_status,
-  ADD INDEX idx_user_plan_status (user_id, plan, status);
+  ADD COLUMN plan VARCHAR(20) NOT NULL DEFAULT 'planner' CHECK (plan IN ('planner','sms_reminders'));
+
+-- New index created before dropping the old one: both start with user_id
+-- (the subscriptions.user_id FK's supporting index), and MySQL refuses to
+-- drop the last index covering an FK column with nothing to replace it.
+CREATE INDEX idx_user_plan_status ON subscriptions (user_id, plan, status);
+
+DROP INDEX idx_user_status ON subscriptions;

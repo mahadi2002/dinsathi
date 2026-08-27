@@ -21,9 +21,9 @@ final class PushSubscriptionRepo
         );
     }
 
-    public function deleteByEndpoint(string $endpoint): void
+    public function deleteByEndpoint(string $endpoint, int $userId): void
     {
-        Db::exec('DELETE FROM push_subscriptions WHERE endpoint = ?', [$endpoint]);
+        Db::exec('DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?', [$endpoint, $userId]);
     }
 
     public function delete(int $id): void

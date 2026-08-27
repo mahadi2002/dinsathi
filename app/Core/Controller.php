@@ -44,15 +44,4 @@ abstract class Controller
     {
         return Session::userId();
     }
-
-    /**
-     * True when the viewer holds an active planner subscription right now.
-     * Always re-read from the DB — never from a session flag, so a lapsed
-     * subscription loses access on this very request, not at next login.
-     */
-    protected function isSubscribed(): bool
-    {
-        $userId = Session::userId();
-        return $userId !== null && \App\Services\SubscriptionService::hasAccess($userId);
-    }
 }

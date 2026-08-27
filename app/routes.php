@@ -4,15 +4,13 @@ declare(strict_types=1);
 /**
  * The route table. Format: [method, path, 'Controller@action', [middleware]].
  *
- * Middleware keys: csrf | guest | auth | sub | admin | rl:<bucket>
+ * Middleware keys: csrf | guest | auth | admin | rl:<bucket>
  * SecurityHeaders is applied globally in public/index.php, not per route.
  *
- * No free tier: every /app/* route carries 'sub' (the planner subscription)
- * on top of 'auth' — there is no degraded free path through the app itself,
- * only the public marketing pages and the subscribe funnel are reachable
- * without paying. The SMS Reminder add-on is a second, separate
- * subscription checked inside ReminderService at send time, not at the
- * route level — it's a delivery channel toggle inside Settings, not a page.
+ * No subscription/billing anywhere in this app — every /app/* route only
+ * requires 'auth' (a logged-in, registered account). There is no paid tier,
+ * no free/paid split, and no separate SMS delivery gate; reminders are
+ * push-only.
  *
  * Order matters: literal paths must precede {slug}/{id}/{date} patterns that
  * would also match (e.g. /app/tasks before /app/tasks/{id}).
@@ -28,74 +26,59 @@ return [
     ['GET',  '/contact',             'HomeController@contact',        []],
     ['POST', '/contact',             'HomeController@submitContact',  ['csrf', 'rl:contact']],
 
-    // ── Auth (mobile OTP only) ─────────────────────────────────────────
+    // ── Auth (email + password) ────────────────────────────────────────
     ['GET',  '/register',            'AuthController@registerForm',   ['guest']],
-    ['POST', '/register/otp',        'AuthController@requestRegisterOtp', ['guest', 'csrf', 'rl:otp_request']],
-    ['GET',  '/register/verify',     'AuthController@registerVerifyForm', ['guest']],
-    ['POST', '/register/verify',     'AuthController@verifyRegister', ['guest', 'csrf', 'rl:otp_verify']],
+    ['POST', '/register',            'AuthController@register',       ['guest', 'csrf', 'rl:register']],
     ['GET',  '/login',               'AuthController@loginForm',      ['guest']],
-    ['POST', '/login/otp',           'AuthController@requestLoginOtp', ['guest', 'csrf', 'rl:otp_request']],
-    ['GET',  '/login/verify',        'AuthController@loginVerifyForm', ['guest']],
-    ['POST', '/login/verify',        'AuthController@verifyLogin',    ['guest', 'csrf', 'rl:otp_verify']],
-    ['POST', '/otp/resend',          'AuthController@resendOtp',      ['guest', 'csrf', 'rl:otp_resend']],
+    ['POST', '/login',               'AuthController@login',          ['guest', 'csrf', 'rl:login']],
+    ['GET',  '/forgot-password',     'AuthController@forgotPasswordForm', ['guest']],
+    ['POST', '/forgot-password',     'AuthController@forgotPassword', ['guest', 'csrf', 'rl:password_reset']],
+    ['GET',  '/reset-password/{slug}', 'AuthController@resetPasswordForm', ['guest']],
+    ['POST', '/reset-password/{slug}', 'AuthController@resetPassword',     ['guest', 'csrf']],
     ['POST', '/logout',              'AuthController@logout',         ['auth', 'csrf']],
 
-    // ── Subscription funnel — 'auth' only, never 'sub' (that would lock
-    //    a not-yet-subscribed user out of the one place that lets them
-    //    subscribe). Unsubscribe is reachable from every state on purpose. ──
-    ['GET',  '/subscribe',           'SubscribeController@show',      ['auth']],
-    ['POST', '/subscribe/otp',       'SubscribeController@requestOtp', ['auth', 'csrf', 'rl:otp_request']],
-    ['POST', '/subscribe/confirm',   'SubscribeController@confirm',   ['auth', 'csrf']],
-    ['GET',  '/subscribe/status',    'SubscribeController@status',    ['auth']],
-    ['POST', '/unsubscribe',         'SubscribeController@unsubscribe', ['auth', 'csrf']],
+    // ── Gated app — every route requires a signed-in account ────────────
+    ['GET',  '/app',                       'DashboardController@index',   ['auth']],
+    ['GET',  '/app/day/{date}',            'CalendarController@day',      ['auth']],
+    ['GET',  '/app/week/{date}',           'CalendarController@week',     ['auth']],
+    ['GET',  '/app/month/{date}',          'CalendarController@month',    ['auth']],
 
-    ['GET',  '/subscribe/sms',            'SubscribeController@showSms',       ['auth']],
-    ['POST', '/subscribe/sms/otp',        'SubscribeController@requestOtpSms', ['auth', 'csrf', 'rl:otp_request']],
-    ['POST', '/subscribe/sms/confirm',    'SubscribeController@confirmSms',    ['auth', 'csrf']],
-    ['GET',  '/subscribe/sms/status',     'SubscribeController@statusSms',     ['auth']],
-    ['POST', '/unsubscribe/sms',          'SubscribeController@unsubscribeSms', ['auth', 'csrf']],
+    ['GET',  '/app/insights',              'InsightsController@index',    ['auth']],
 
-    // ── Gated app — every route requires an active planner subscription ──
-    ['GET',  '/app',                       'DashboardController@index',   ['auth', 'sub']],
-    ['GET',  '/app/day/{date}',            'CalendarController@day',      ['auth', 'sub']],
-    ['GET',  '/app/week/{date}',           'CalendarController@week',     ['auth', 'sub']],
-    ['GET',  '/app/month/{date}',          'CalendarController@month',    ['auth', 'sub']],
+    ['GET',  '/app/tasks',                 'TaskController@index',        ['auth']],
+    ['POST', '/app/tasks',                 'TaskController@store',        ['auth', 'csrf']],
+    ['GET',  '/app/tasks/{id}',            'TaskController@show',         ['auth']],
+    ['PATCH','/app/tasks/{id}',            'TaskController@update',       ['auth', 'csrf']],
+    ['PATCH','/app/tasks/{id}/reschedule', 'TaskController@reschedule',   ['auth', 'csrf']],
+    ['DELETE','/app/tasks/{id}',           'TaskController@destroy',      ['auth', 'csrf']],
+    ['POST', '/app/tasks/{id}/complete',   'TaskController@complete',     ['auth', 'csrf']],
+    ['POST', '/app/tasks/{id}/subtasks',   'TaskController@addSubtask',   ['auth', 'csrf']],
+    ['POST', '/app/subtasks/{id}/toggle',  'TaskController@toggleSubtask', ['auth', 'csrf']],
 
-    ['GET',  '/app/insights',              'InsightsController@index',    ['auth', 'sub']],
+    ['GET',  '/app/lists',                 'TaskListController@index',    ['auth']],
+    ['POST', '/app/lists',                 'TaskListController@store',    ['auth', 'csrf']],
+    ['PATCH','/app/lists/{id}',            'TaskListController@update',   ['auth', 'csrf']],
+    ['DELETE','/app/lists/{id}',           'TaskListController@destroy',  ['auth', 'csrf']],
 
-    ['GET',  '/app/tasks',                 'TaskController@index',        ['auth', 'sub']],
-    ['POST', '/app/tasks',                 'TaskController@store',        ['auth', 'sub', 'csrf']],
-    ['GET',  '/app/tasks/{id}',            'TaskController@show',         ['auth', 'sub']],
-    ['PATCH','/app/tasks/{id}',            'TaskController@update',       ['auth', 'sub', 'csrf']],
-    ['DELETE','/app/tasks/{id}',           'TaskController@destroy',      ['auth', 'sub', 'csrf']],
-    ['POST', '/app/tasks/{id}/complete',   'TaskController@complete',     ['auth', 'sub', 'csrf']],
-    ['POST', '/app/tasks/{id}/subtasks',   'TaskController@addSubtask',   ['auth', 'sub', 'csrf']],
-    ['POST', '/app/subtasks/{id}/toggle',  'TaskController@toggleSubtask', ['auth', 'sub', 'csrf']],
+    ['GET',  '/app/habits',                'HabitController@index',       ['auth']],
+    ['POST', '/app/habits',                'HabitController@store',       ['auth', 'csrf']],
+    ['POST', '/app/habits/{id}/checkin',   'HabitController@checkin',     ['auth', 'csrf']],
+    ['GET',  '/app/habits/{id}/history',   'HabitController@history',     ['auth']],
+    ['DELETE','/app/habits/{id}',          'HabitController@destroy',     ['auth', 'csrf']],
 
-    ['GET',  '/app/lists',                 'TaskListController@index',    ['auth', 'sub']],
-    ['POST', '/app/lists',                 'TaskListController@store',    ['auth', 'sub', 'csrf']],
-    ['PATCH','/app/lists/{id}',            'TaskListController@update',   ['auth', 'sub', 'csrf']],
-    ['DELETE','/app/lists/{id}',           'TaskListController@destroy',  ['auth', 'sub', 'csrf']],
+    ['GET',  '/app/focus',                 'FocusController@index',       ['auth']],
+    ['POST', '/app/focus',                 'FocusController@store',       ['auth', 'csrf']],
 
-    ['GET',  '/app/habits',                'HabitController@index',       ['auth', 'sub']],
-    ['POST', '/app/habits',                'HabitController@store',       ['auth', 'sub', 'csrf']],
-    ['POST', '/app/habits/{id}/checkin',   'HabitController@checkin',     ['auth', 'sub', 'csrf']],
-    ['GET',  '/app/habits/{id}/history',   'HabitController@history',     ['auth', 'sub']],
-    ['DELETE','/app/habits/{id}',          'HabitController@destroy',     ['auth', 'sub', 'csrf']],
+    ['GET',  '/app/review/{date}',         'ReviewController@show',       ['auth']],
+    ['POST', '/app/review/{date}',         'ReviewController@store',      ['auth', 'csrf']],
 
-    ['GET',  '/app/focus',                 'FocusController@index',       ['auth', 'sub']],
-    ['POST', '/app/focus',                 'FocusController@store',       ['auth', 'sub', 'csrf']],
+    ['POST', '/app/notifications/read',    'NotificationController@markRead', ['auth', 'csrf']],
 
-    ['GET',  '/app/review/{date}',         'ReviewController@show',       ['auth', 'sub']],
-    ['POST', '/app/review/{date}',         'ReviewController@store',      ['auth', 'sub', 'csrf']],
-
-    ['POST', '/app/notifications/read',    'NotificationController@markRead', ['auth', 'sub', 'csrf']],
-
-    ['GET',  '/app/settings',              'SettingsController@index',    ['auth', 'sub']],
-    ['POST', '/app/settings',              'SettingsController@update',   ['auth', 'sub', 'csrf']],
-    ['POST', '/app/settings/push/subscribe',   'SettingsController@pushSubscribe',   ['auth', 'sub', 'csrf']],
-    ['POST', '/app/settings/push/unsubscribe', 'SettingsController@pushUnsubscribe', ['auth', 'sub', 'csrf']],
-    ['POST', '/app/settings/export',       'SettingsController@export',   ['auth', 'sub', 'csrf', 'rl:export']],
+    ['GET',  '/app/settings',              'SettingsController@index',    ['auth']],
+    ['POST', '/app/settings',              'SettingsController@update',   ['auth', 'csrf']],
+    ['POST', '/app/settings/push/subscribe',   'SettingsController@pushSubscribe',   ['auth', 'csrf']],
+    ['POST', '/app/settings/push/unsubscribe', 'SettingsController@pushUnsubscribe', ['auth', 'csrf']],
+    ['POST', '/app/settings/export',       'SettingsController@export',   ['auth', 'csrf', 'rl:export']],
 
     // ── Admin (separate auth entirely) ──────────────────────────────────
     ['GET',  '/admin/login',         'Admin/AdminAuthController@form',    []],
@@ -108,10 +91,8 @@ return [
     ['GET',  '/admin/users',         'Admin/AdminUserController@index',   ['admin']],
     ['GET',  '/admin/users/{id}',    'Admin/AdminUserController@show',    ['admin']],
 
-    ['GET',  '/admin/billing-events','Admin/AdminBillingController@index', ['admin']],
-    ['GET',  '/admin/sms-log',       'Admin/AdminSmsController@index',     ['admin']],
-
     ['GET',  '/admin/contact',       'Admin/AdminContactController@index',   ['admin']],
+    ['POST', '/admin/contact/{id}/resolve', 'Admin/AdminContactController@resolve', ['admin', 'csrf']],
 
     ['GET',  '/admin/broadcast',     'Admin/AdminBroadcastController@form',  ['admin']],
     ['POST', '/admin/broadcast',     'Admin/AdminBroadcastController@send',  ['admin', 'csrf']],

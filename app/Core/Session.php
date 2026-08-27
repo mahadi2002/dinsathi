@@ -9,8 +9,9 @@ use SessionHandlerInterface;
  * DB-backed session handler (the `sessions` table from 02-SCHEMA.sql).
  *
  * Storing sessions in MySQL is what makes server-side revocation possible:
- * when a subscription lapses, SubscriptionService deletes the user's rows
- * and an already-open browser loses access on its very next request.
+ * deleting a user's rows (account suspension, password change, logout
+ * everywhere) means an already-open browser loses access on its very next
+ * request.
  *
  * The absolute-lifetime / hijack check below is bound to a hash of the
  * user-agent, never IP — mobile data IPs in this market rotate constantly,
@@ -145,7 +146,7 @@ final class Session implements SessionHandlerInterface
         self::$started = false;
     }
 
-    /** Server-side revocation — used by SubscriptionService and account delete. */
+    /** Server-side revocation — used on password change and account status change. */
     public static function revokeAllForUser(int $userId): void
     {
         Db::exec('DELETE FROM sessions WHERE user_id = ?', [$userId]);
@@ -165,7 +166,7 @@ final class Session implements SessionHandlerInterface
 
     public function read(string $id): string|false
     {
-        $row = Db::first('SELECT payload FROM sessions WHERE id = ? AND expires_at > UTC_TIMESTAMP()', [$id]);
+        $row = Db::first('SELECT payload FROM sessions WHERE id = ? AND expires_at > NOW()', [$id]);
         return $row === null ? '' : (string) $row['payload'];
     }
 
@@ -177,7 +178,7 @@ final class Session implements SessionHandlerInterface
 
         Db::exec(
             'INSERT INTO sessions (id, user_id, admin_id, payload, ip_address, user_agent, last_active, expires_at)
-             VALUES (?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(), DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? MINUTE))
+             VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW() + INTERVAL ? MINUTE)
              ON DUPLICATE KEY UPDATE
                 user_id = VALUES(user_id),
                 admin_id = VALUES(admin_id),
@@ -206,6 +207,6 @@ final class Session implements SessionHandlerInterface
 
     public function gc(int $maxLifetime): int|false
     {
-        return Db::exec('DELETE FROM sessions WHERE expires_at < UTC_TIMESTAMP()');
+        return Db::exec('DELETE FROM sessions WHERE expires_at < NOW()');
     }
 }

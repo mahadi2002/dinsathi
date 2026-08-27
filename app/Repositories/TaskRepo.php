@@ -24,7 +24,7 @@ final class TaskRepo
             'SELECT t.*, l.name AS list_name, l.color_hex AS list_color
              FROM tasks t JOIN task_lists l ON l.id = t.list_id
              WHERE t.user_id = ? AND t.is_template = 0 AND t.due_at >= ? AND t.due_at < ?
-             ORDER BY t.due_at ASC, FIELD(t.priority, "urgent","high","medium","low")',
+             ORDER BY t.due_at ASC, FIELD(t.priority, \'urgent\',\'high\',\'medium\',\'low\')',
             [$userId, $fromUtc, $toUtc]
         );
     }
@@ -56,7 +56,7 @@ final class TaskRepo
         if (!$includeCompleted) {
             $sql .= ' AND t.completed_at IS NULL';
         }
-        $sql .= ' ORDER BY (t.due_at IS NULL), t.due_at ASC, FIELD(t.priority,"urgent","high","medium","low")';
+        $sql .= ' ORDER BY (t.due_at IS NULL), t.due_at ASC, FIELD(t.priority, \'urgent\',\'high\',\'medium\',\'low\')';
 
         return Db::all($sql, $params);
     }
@@ -64,7 +64,9 @@ final class TaskRepo
     /** Combined list/tag/keyword filter for the tasks index — any of the three may be null/empty. */
     public function search(int $userId, ?int $listId, ?int $tagId, string $q): array
     {
-        $sql = 'SELECT DISTINCT t.*, l.name AS list_name, l.color_hex AS list_color
+        $sql = 'SELECT DISTINCT t.*, l.name AS list_name, l.color_hex AS list_color,
+                       (t.due_at IS NULL) AS due_at_null_sort,
+                       FIELD(t.priority, \'urgent\',\'high\',\'medium\',\'low\') AS priority_sort
                 FROM tasks t
                 JOIN task_lists l ON l.id = t.list_id';
         $params = [];
@@ -88,7 +90,7 @@ final class TaskRepo
             $params[] = $like;
         }
 
-        $sql .= ' ORDER BY (t.due_at IS NULL), t.due_at ASC, FIELD(t.priority,"urgent","high","medium","low")';
+        $sql .= ' ORDER BY due_at_null_sort, t.due_at ASC, priority_sort';
 
         return Db::all($sql, $params);
     }
@@ -122,9 +124,46 @@ final class TaskRepo
         );
     }
 
+    /**
+     * "This and future" cascade for a recurring template edit — updates
+     * title/notes/priority/reminder on every already-generated instance
+     * that's still in the future and not yet completed (never past ones,
+     * per 01-BUILD-SPEC.md §8's "not past" rule); due_at is left alone
+     * since that's per-instance, not part of the template edit.
+     *
+     * @return array<int,array> the instances just updated, so the caller
+     *         can reschedule their reminders
+     */
+    public function cascadeToFutureInstances(int $templateId, int $userId, array $fields): array
+    {
+        Db::exec(
+            'UPDATE tasks SET title = ?, notes = ?, priority = ?, reminder_offset_min = ?
+             WHERE parent_template_id = ? AND user_id = ? AND is_template = 0
+               AND due_at >= NOW() AND completed_at IS NULL',
+            [
+                $fields['title'], $fields['notes'] ?? null, $fields['priority'], $fields['reminder_offset_min'] ?? null,
+                $templateId, $userId,
+            ]
+        );
+
+        return Db::all(
+            'SELECT * FROM tasks WHERE parent_template_id = ? AND user_id = ? AND is_template = 0 AND due_at >= NOW()',
+            [$templateId, $userId]
+        );
+    }
+
     public function delete(int $id, int $userId): void
     {
         Db::exec('DELETE FROM tasks WHERE id = ? AND user_id = ?', [$id, $userId]);
+    }
+
+    /** Drag-to-reschedule from the calendar views — updates due_at alone, never a template row. */
+    public function updateDueAt(int $id, int $userId, ?string $dueAtUtc): void
+    {
+        Db::exec(
+            'UPDATE tasks SET due_at = ? WHERE id = ? AND user_id = ? AND is_template = 0',
+            [$dueAtUtc, $id, $userId]
+        );
     }
 
     public function setCompleted(int $id, int $userId, bool $completed): void
@@ -144,7 +183,7 @@ final class TaskRepo
         return Db::all('SELECT * FROM tasks WHERE is_template = 1');
     }
 
-    /** Existing generated instance dates (Dhaka-local 'Y-m-d', via DATE(CONVERT_TZ)) for a template. */
+    /** Existing generated instance dates (Dhaka-local 'Y-m-d') for a template. */
     public function instanceDatesForTemplate(int $templateId): array
     {
         $rows = Db::all(

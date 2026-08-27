@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 use App\Core\Db;
 
-$email = 'admin@dinsathi.local';
+$email = 'admin@prohor.local';
 $exists = Db::value('SELECT id FROM admin_users WHERE email = ?', [$email]);
 
 if ($exists === null) {

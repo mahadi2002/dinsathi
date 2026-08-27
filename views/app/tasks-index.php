@@ -120,7 +120,7 @@ $filterUrl = static function (array $override) use ($activeList, $activeTag, $q)
           <?php if ($task['completed_at'] !== null): ?>✓<?php endif; ?>
         </button>
         <a href="/app/tasks/<?= e((string) $task['id']) ?>" class="task-row__label text-inherit">
-          <strong class="<?= $task['completed_at'] !== null ? 'task-title--done' : '' ?>"><?= e((string) $task['title']) ?></strong>
+          <strong data-toggle-title class="<?= $task['completed_at'] !== null ? 'task-title--done' : '' ?>"><?= e((string) $task['title']) ?></strong>
           <span class="small muted">
             <span class="list-dot <?= e(list_color_class((string) $task['list_color'])) ?>"></span> <?= e((string) $task['list_name']) ?>
             <?php if ($task['due_at'] !== null): ?> · <?= e(bn_date_utc((string) $task['due_at'], true)) ?><?php endif; ?>

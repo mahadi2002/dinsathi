@@ -15,11 +15,9 @@ use App\Support\DateBD;
 use DateTimeImmutable;
 
 /**
- * The subscriber-value feature this business model change asked for: a
- * dedicated page that turns the data DinSathi is already collecting (task
- * completions, habit check-ins, focus sessions, daily reviews) into a
- * reason to keep paying — "here's what you actually did," not just a
- * to-do list.
+ * A personal-stats page: turns the data the app is already collecting
+ * (task completions, habit check-ins, focus sessions, daily reviews) into
+ * a weekly/monthly summary of what actually got done.
  */
 final class InsightsController extends Controller
 {

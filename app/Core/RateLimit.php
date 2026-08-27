@@ -15,14 +15,13 @@ namespace App\Core;
 final class RateLimit
 {
     public const BUCKETS = [
-        'otp_request'  => ['limit' => 3, 'window' => 3600],
-        'otp_verify'   => ['limit' => 5, 'window' => 900],
-        'otp_resend'   => ['limit' => 3, 'window' => 3600],
-        'login'        => ['limit' => 5, 'window' => 900],
-        'admin_login'  => ['limit' => 5, 'window' => 900],
-        'contact'      => ['limit' => 3, 'window' => 3600],
-        'search'       => ['limit' => 30, 'window' => 60],
-        'export'       => ['limit' => 5, 'window' => 3600],
+        'login'           => ['limit' => 5, 'window' => 900],
+        'register'        => ['limit' => 5, 'window' => 3600],
+        'password_reset'  => ['limit' => 3, 'window' => 3600],
+        'admin_login'     => ['limit' => 5, 'window' => 900],
+        'contact'         => ['limit' => 3, 'window' => 3600],
+        'search'          => ['limit' => 30, 'window' => 60],
+        'export'          => ['limit' => 5, 'window' => 3600],
     ];
 
     /** @return int|null seconds until the caller may retry, or null when allowed */
@@ -72,11 +71,6 @@ final class RateLimit
         );
 
         return $hits >= $limit ? ($windowStart + $windowSeconds) - $now : null;
-    }
-
-    public static function reset(string $bucket, string $key): void
-    {
-        Db::exec('DELETE FROM rate_limits WHERE bucket_key = ?', [$bucket . ':' . substr($key, 0, 140)]);
     }
 
     /** "৫৯ মিনিট" / "৪৫ সেকেন্ড" — turns a raw second count into shown wording. */

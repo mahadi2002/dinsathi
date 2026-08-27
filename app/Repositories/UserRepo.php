@@ -12,17 +12,22 @@ final class UserRepo
         return Db::first('SELECT * FROM users WHERE id = ?', [$id]);
     }
 
-    public function findByMobile(string $mobile): ?array
+    public function findByEmail(string $email): ?array
     {
-        return Db::first('SELECT * FROM users WHERE mobile_number = ?', [$mobile]);
+        return Db::first('SELECT * FROM users WHERE email = ?', [$email]);
     }
 
-    public function create(string $mobile, string $operator): int
+    public function create(string $email, string $passwordHash): int
     {
         return Db::insert(
-            'INSERT INTO users (mobile_number, operator, status) VALUES (?, ?, ?)',
-            [$mobile, $operator, 'active']
+            'INSERT INTO users (email, password_hash, status) VALUES (?, ?, ?)',
+            [$email, $passwordHash, 'active']
         );
+    }
+
+    public function updatePassword(int $id, string $passwordHash): void
+    {
+        Db::exec('UPDATE users SET password_hash = ? WHERE id = ?', [$passwordHash, $id]);
     }
 
     public function updateProfile(int $id, ?string $displayName): void
@@ -30,11 +35,11 @@ final class UserRepo
         Db::exec('UPDATE users SET display_name = ? WHERE id = ?', [$displayName, $id]);
     }
 
-    public function updateNotificationPrefs(int $id, string $quietStart, string $quietEnd, bool $smsOn): void
+    public function updateNotificationPrefs(int $id, string $quietStart, string $quietEnd): void
     {
         Db::exec(
-            'UPDATE users SET push_quiet_start = ?, push_quiet_end = ?, sms_reminders_on = ? WHERE id = ?',
-            [$quietStart, $quietEnd, $smsOn ? 1 : 0, $id]
+            'UPDATE users SET push_quiet_start = ?, push_quiet_end = ? WHERE id = ?',
+            [$quietStart, $quietEnd, $id]
         );
     }
 
@@ -50,9 +55,9 @@ final class UserRepo
 
         if ($search !== '') {
             $like = '%' . $search . '%';
-            $total = (int) Db::value('SELECT COUNT(*) FROM users WHERE mobile_number LIKE ?', [$like]);
+            $total = (int) Db::value('SELECT COUNT(*) FROM users WHERE email LIKE ?', [$like]);
             $rows  = Db::all(
-                'SELECT * FROM users WHERE mobile_number LIKE ? ORDER BY id DESC LIMIT ? OFFSET ?',
+                'SELECT * FROM users WHERE email LIKE ? ORDER BY id DESC LIMIT ? OFFSET ?',
                 [$like, $perPage, $offset]
             );
         } else {

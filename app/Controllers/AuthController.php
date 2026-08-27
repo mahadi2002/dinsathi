@@ -4,14 +4,17 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
+use App\Core\Crypto;
+use App\Core\RateLimit;
 use App\Core\Request;
 use App\Core\Response;
 use App\Core\Session;
 use App\Core\Validator;
-use App\Exceptions\OtpException;
+use App\Repositories\PasswordResetRepo;
 use App\Repositories\TaskListRepo;
 use App\Repositories\UserRepo;
-use App\Services\OtpService;
+use App\Services\MailerService;
+use PDOException;
 
 final class AuthController extends Controller
 {
@@ -22,84 +25,66 @@ final class AuthController extends Controller
         return $this->view('auth/register', ['title' => 'Register']);
     }
 
-    public function requestRegisterOtp(Request $request): Response
+    public function register(Request $request): Response
     {
-        $v = Validator::make($request->body(), ['mobile_number' => 'required|msisdn'], ['mobile_number' => 'মোবাইল নম্বর']);
+        $key  = 'ip:' . $request->ipHash();
+        $wait = RateLimit::tooMany('register', $key);
+        if ($wait !== null) {
+            Session::notify('error', 'অনেকবার চেষ্টা হয়েছে। ' . RateLimit::humanWait($wait) . ' পর আবার চেষ্টা করুন।');
+            return $this->redirect('/register');
+        }
+
+        $v = Validator::make($request->body(), [
+            'email'    => 'required|email|max:191',
+            'password' => 'required|min:8|max:255',
+        ], ['email' => 'Email', 'password' => 'Password']);
 
         if ($v->fails()) {
-            $v->flash();
+            $v->flash(['_token', 'password', 'password_confirmation']);
             return $this->redirect('/register');
         }
 
-        $mobile   = $v->get('mobile_number');
-        $operator = $this->operatorFor($mobile);
+        $email    = mb_strtolower($v->get('email'), 'UTF-8');
+        $password = $request->str('password');
+        $confirm  = $request->str('password_confirmation');
 
-        if ($operator === null) {
-            Session::flash('_errors', ['mobile_number' => [(string) config('operators.display_note')]]);
-            Session::flash('_old', $request->body());
+        if ($password !== $confirm) {
+            Session::flash('_errors', ['password_confirmation' => ['Password দুটো মিলছে না।']]);
+            Session::flash('_old', ['email' => $email]);
             return $this->redirect('/register');
         }
 
-        if ((new UserRepo())->findByMobile($mobile) !== null) {
-            Session::notify('info', 'এই নম্বর দিয়ে আগেই Account আছে। লগইন করুন।');
-            return $this->redirect('/login');
-        }
-
-        try {
-            (new OtpService())->request($mobile, 'register');
-        } catch (OtpException $e) {
-            Session::notify('error', $e->getMessage());
-            return $this->redirect('/register');
-        }
-
-        Session::put('pending_mobile', $mobile);
-        Session::put('pending_operator', $operator);
-        Session::put('pending_purpose', 'register');
-
-        return $this->redirect('/register/verify');
-    }
-
-    public function registerVerifyForm(Request $request): Response
-    {
-        if (Session::get('pending_mobile') === null || Session::get('pending_purpose') !== 'register') {
-            return $this->redirect('/register');
-        }
-        return $this->view('auth/verify', [
-            'title'   => 'OTP যাচাই করুন',
-            'mobile'  => Session::get('pending_mobile'),
-            'action'  => '/register/verify',
-        ]);
-    }
-
-    public function verifyRegister(Request $request): Response
-    {
-        $mobile   = (string) Session::get('pending_mobile', '');
-        $operator = (string) Session::get('pending_operator', '');
-
-        if ($mobile === '' || Session::get('pending_purpose') !== 'register') {
-            return $this->redirect('/register');
-        }
-
-        try {
-            (new OtpService())->verify($mobile, 'register', $request->str('otp'));
-        } catch (OtpException $e) {
-            Session::notify('error', $e->getMessage());
-            return $this->redirect('/register/verify');
-        }
+        RateLimit::hit('register', $key);
 
         $userRepo = new UserRepo();
-        $existing = $userRepo->findByMobile($mobile);
-        $userId   = $existing['id'] ?? $userRepo->create($mobile, $operator);
 
-        if ($existing === null) {
-            (new TaskListRepo())->create((int) $userId, 'আমার Task', '#2E3A87', true);
+        // Generic failure on a duplicate email — never confirm whether an
+        // account already exists for a given address.
+        if ($userRepo->findByEmail($email) !== null) {
+            Session::notify('error', 'এই তথ্য দিয়ে এখন Account তৈরি করা যাচ্ছে না।');
+            Session::flash('_old', ['email' => $email]);
+            return $this->redirect('/register');
         }
 
-        $this->signIn((int) $userId);
+        try {
+            $userId = $userRepo->create($email, password_hash($password, PASSWORD_DEFAULT));
+        } catch (PDOException $e) {
+            // Two requests can both pass the findByEmail() check above before
+            // either INSERT commits — uq_users_email is the real guard, this
+            // just turns its violation into the same friendly message.
+            if ($e->getCode() === '23000') {
+                Session::notify('error', 'এই তথ্য দিয়ে এখন Account তৈরি করা যাচ্ছে না।');
+                Session::flash('_old', ['email' => $email]);
+                return $this->redirect('/register');
+            }
+            throw $e;
+        }
 
-        // A brand new account is never subscribed yet — go straight to the
-        // subscribe funnel instead of bouncing through /app first.
-        return $this->redirect('/subscribe');
+        (new TaskListRepo())->create($userId, 'আমার Task', '#2E3A87', true);
+
+        $this->signIn($userId);
+
+        return $this->redirect('/app');
     }
 
     // ── Login ────────────────────────────────────────────────────────────
@@ -109,63 +94,42 @@ final class AuthController extends Controller
         return $this->view('auth/login', ['title' => 'Login']);
     }
 
-    public function requestLoginOtp(Request $request): Response
+    public function login(Request $request): Response
     {
-        $v = Validator::make($request->body(), ['mobile_number' => 'required|msisdn'], ['mobile_number' => 'মোবাইল নম্বর']);
+        $key  = 'ip:' . $request->ipHash();
+        $wait = RateLimit::tooMany('login', $key);
+        if ($wait !== null) {
+            Session::notify('error', 'অনেকবার চেষ্টা হয়েছে। ' . RateLimit::humanWait($wait) . ' পর আবার চেষ্টা করুন।');
+            return $this->redirect('/login');
+        }
+
+        $v = Validator::make($request->body(), [
+            'email'    => 'required|email',
+            'password' => 'required',
+        ], ['email' => 'Email', 'password' => 'Password']);
+
         if ($v->fails()) {
             $v->flash();
             return $this->redirect('/login');
         }
 
-        $mobile = $v->get('mobile_number');
-        $user   = (new UserRepo())->findByMobile($mobile);
+        RateLimit::hit('login', $key);
 
-        if ($user === null) {
-            Session::notify('info', 'এই নম্বরে কোনো Account নেই। আগে Register করুন।');
-            return $this->redirect('/register');
-        }
+        $email = mb_strtolower($v->get('email'), 'UTF-8');
+        $user  = (new UserRepo())->findByEmail($email);
 
-        try {
-            (new OtpService())->request($mobile, 'login');
-        } catch (OtpException $e) {
-            Session::notify('error', $e->getMessage());
+        // Constant-ish work whether or not the account exists, so timing does
+        // not reveal which emails are registered.
+        $hash  = $user['password_hash'] ?? '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi';
+        $valid = password_verify($request->str('password'), (string) $hash);
+
+        if ($user === null || !$valid) {
+            Session::notify('error', 'Email অথবা Password ভুল।');
+            Session::flash('_old', ['email' => $email]);
             return $this->redirect('/login');
         }
 
-        Session::put('pending_mobile', $mobile);
-        Session::put('pending_purpose', 'login');
-
-        return $this->redirect('/login/verify');
-    }
-
-    public function loginVerifyForm(Request $request): Response
-    {
-        if (Session::get('pending_mobile') === null || Session::get('pending_purpose') !== 'login') {
-            return $this->redirect('/login');
-        }
-        return $this->view('auth/verify', [
-            'title'  => 'OTP যাচাই করুন',
-            'mobile' => Session::get('pending_mobile'),
-            'action' => '/login/verify',
-        ]);
-    }
-
-    public function verifyLogin(Request $request): Response
-    {
-        $mobile = (string) Session::get('pending_mobile', '');
-        if ($mobile === '' || Session::get('pending_purpose') !== 'login') {
-            return $this->redirect('/login');
-        }
-
-        try {
-            (new OtpService())->verify($mobile, 'login', $request->str('otp'));
-        } catch (OtpException $e) {
-            Session::notify('error', $e->getMessage());
-            return $this->redirect('/login/verify');
-        }
-
-        $user = (new UserRepo())->findByMobile($mobile);
-        if ($user === null || $user['status'] !== 'active') {
+        if ($user['status'] !== 'active') {
             Session::notify('error', 'এই Account বর্তমানে সক্রিয় নয়।');
             return $this->redirect('/login');
         }
@@ -175,48 +139,102 @@ final class AuthController extends Controller
         return $this->redirect('/app');
     }
 
-    // ── Shared ───────────────────────────────────────────────────────────
-
-    public function resendOtp(Request $request): Response
-    {
-        $mobile  = (string) Session::get('pending_mobile', '');
-        $purpose = (string) Session::get('pending_purpose', '');
-
-        if ($mobile === '' || $purpose === '') {
-            return $this->redirect('/login');
-        }
-
-        try {
-            (new OtpService())->resend($mobile, $purpose);
-            Session::notify('success', 'নতুন OTP পাঠানো হয়েছে।');
-        } catch (OtpException $e) {
-            Session::notify('error', $e->getMessage());
-        }
-
-        return $this->redirect($purpose === 'register' ? '/register/verify' : '/login/verify');
-    }
-
     public function logout(Request $request): Response
     {
         Session::destroy_all();
         return $this->redirect('/');
     }
 
+    // ── Forgot / reset password ─────────────────────────────────────────
+
+    public function forgotPasswordForm(Request $request): Response
+    {
+        return $this->view('auth/forgot-password', ['title' => 'Password ভুলে গেছেন?']);
+    }
+
+    public function forgotPassword(Request $request): Response
+    {
+        $key  = 'ip:' . $request->ipHash();
+        $wait = RateLimit::tooMany('password_reset', $key);
+        if ($wait !== null) {
+            Session::notify('error', 'অনেকবার চেষ্টা হয়েছে। ' . RateLimit::humanWait($wait) . ' পর আবার চেষ্টা করুন।');
+            return $this->redirect('/forgot-password');
+        }
+
+        $v = Validator::make($request->body(), ['email' => 'required|email'], ['email' => 'Email']);
+        if ($v->fails()) {
+            $v->flash();
+            return $this->redirect('/forgot-password');
+        }
+
+        RateLimit::hit('password_reset', $key);
+
+        $email = mb_strtolower($v->get('email'), 'UTF-8');
+        $user  = (new UserRepo())->findByEmail($email);
+
+        // Always show the same message whether or not the email exists —
+        // never confirm account existence through this form.
+        if ($user !== null) {
+            $token     = Crypto::randomToken(32);
+            $ttl       = (int) config('app.password_reset.ttl', 3600);
+            (new PasswordResetRepo())->create((int) $user['id'], Crypto::blindIndex('reset:' . $token), $ttl);
+
+            $resetUrl = rtrim((string) config('app.url'), '/') . '/reset-password/' . $token;
+            (new MailerService())->sendPasswordReset($email, $resetUrl);
+        }
+
+        Session::notify('success', 'যদি এই Email দিয়ে Account থাকে, একটি Reset Link পাঠানো হয়েছে।');
+        return $this->redirect('/login');
+    }
+
+    public function resetPasswordForm(Request $request, string $token): Response
+    {
+        $reset = (new PasswordResetRepo())->findValidByHash(Crypto::blindIndex('reset:' . $token));
+        if ($reset === null) {
+            Session::notify('error', 'এই Link-এর মেয়াদ শেষ অথবা এটি সঠিক নয়। আবার চেষ্টা করুন।');
+            return $this->redirect('/forgot-password');
+        }
+
+        return $this->view('auth/reset-password', ['title' => 'নতুন Password সেট করুন', 'token' => $token]);
+    }
+
+    public function resetPassword(Request $request, string $token): Response
+    {
+        $reset = (new PasswordResetRepo())->findValidByHash(Crypto::blindIndex('reset:' . $token));
+        if ($reset === null) {
+            Session::notify('error', 'এই Link-এর মেয়াদ শেষ অথবা এটি সঠিক নয়। আবার চেষ্টা করুন।');
+            return $this->redirect('/forgot-password');
+        }
+
+        $v = Validator::make($request->body(), ['password' => 'required|min:8|max:255'], ['password' => 'Password']);
+        if ($v->fails()) {
+            $v->flash(['_token', 'password', 'password_confirmation']);
+            return $this->redirect('/reset-password/' . $token);
+        }
+
+        $password = $request->str('password');
+        $confirm  = $request->str('password_confirmation');
+        if ($password !== $confirm) {
+            Session::flash('_errors', ['password_confirmation' => ['Password দুটো মিলছে না।']]);
+            return $this->redirect('/reset-password/' . $token);
+        }
+
+        $userRepo = new UserRepo();
+        $userRepo->updatePassword((int) $reset['user_id'], password_hash($password, PASSWORD_DEFAULT));
+        (new PasswordResetRepo())->consume((int) $reset['id']);
+
+        // Password change invalidates every existing session for this account.
+        Session::revokeAllForUser((int) $reset['user_id']);
+
+        Session::notify('success', 'Password পরিবর্তন হয়েছে। এখন Login করুন।');
+        return $this->redirect('/login');
+    }
+
+    // ── Shared ───────────────────────────────────────────────────────────
+
     private function signIn(int $userId): void
     {
         Session::regenerate();
         Session::put('user_id', $userId);
-        Session::forget('pending_mobile');
-        Session::forget('pending_operator');
-        Session::forget('pending_purpose');
-    }
-
-    private function operatorFor(string $mobile): ?string
-    {
-        $prefix = substr($mobile, 0, 3);
-        $map    = (array) config('operators.map', []);
-        $op     = $map[$prefix] ?? null;
-        $allowed = (array) config('operators.allowed', []);
-        return ($op !== null && in_array($op, $allowed, true)) ? $op : null;
     }
 }

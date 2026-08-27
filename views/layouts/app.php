@@ -7,11 +7,9 @@
 use App\Core\Session;
 use App\Core\View;
 use App\Repositories\NotificationRepo;
-use App\Services\SubscriptionService;
 use App\Support\DateBD;
 
 $userId    = Session::userId();
-$smsActive = $userId !== null && SubscriptionService::hasSmsAccess($userId);
 $today     = DateBD::today();
 $notifRepo = new NotificationRepo();
 $unread    = $userId !== null ? $notifRepo->unreadCount($userId) : 0;
@@ -67,8 +65,6 @@ $isCurrent = static function (string $href) use ($currentPath): bool {
       </a>
 
       <nav class="nav" aria-label="অ্যাকাউন্ট">
-        <?php if (!$smsActive): ?><a class="btn btn--accent btn--sm" href="/subscribe/sms">+ SMS Reminder</a><?php endif; ?>
-
         <div class="bell-wrap">
           <button class="theme-toggle bell-btn" type="button" data-bell-toggle aria-label="Notifications">
             🔔<?php if ($unread > 0): ?><span class="bell-dot" aria-hidden="true"></span><?php endif; ?>
@@ -117,13 +113,6 @@ $isCurrent = static function (string $href) use ($currentPath): bool {
           <?php endforeach; ?>
         </div>
       <?php endforeach; ?>
-
-      <?php if (!$smsActive): ?>
-        <div class="card sidebar-upsell">
-          <p class="small mb-0">Push-এর পাশাপাশি SMS-এও Reminder পেতে —</p>
-          <a class="btn btn--accent btn--sm mt-sm" href="/subscribe/sms">SMS Add-on ৳<?= e($smsAmount) ?>/day</a>
-        </div>
-      <?php endif; ?>
     </aside>
 
     <main class="app-main" id="main">

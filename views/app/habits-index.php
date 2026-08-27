@@ -10,9 +10,11 @@ $this->layout('layouts/app', ['title' => 'Habit Tracker']);
     <?= csrf_field() ?>
     <input type="text" name="name" placeholder="যেমন: সকালে হাঁটা" required class="field-grow">
     <input type="text" name="icon" placeholder="Emoji (ঐচ্ছিক)" maxlength="20" class="field-narrow-sm">
+    <input type="number" name="target_quantity" placeholder="Target সংখ্যা (ঐচ্ছিক)" min="1" class="field-narrow-sm">
+    <input type="text" name="unit" placeholder="একক, যেমন: গ্লাস" maxlength="20" class="field-narrow-sm">
     <button class="btn btn--primary" type="submit">যোগ করুন</button>
   </form>
-  <p class="small muted mt-sm">সপ্তাহের সব দিনের জন্য তৈরি হবে — পরে চাইলে পরিবর্তন করা যাবে।</p>
+  <p class="small muted mt-sm">সপ্তাহের সব দিনের জন্য তৈরি হবে — পরে চাইলে পরিবর্তন করা যাবে। Target সংখ্যা দিলে এটি একটি পরিমাণ-ভিত্তিক Habit হবে (যেমন: দিনে ৮ গ্লাস পানি)।</p>
 </div>
 
 <?php if ($habits === []): ?>
@@ -34,13 +36,28 @@ $this->layout('layouts/app', ['title' => 'Habit Tracker']);
                   title="<?= e(bn_date($day['date'])) ?>"></span>
           <?php endforeach; ?>
         </div>
+        <?php if ($habit['target_quantity'] !== null): ?>
+          <p class="small muted mb-xs">
+            আজ: <strong><?= e(bn_num((int) $habit['today_quantity'])) ?> / <?= e(bn_num((int) $habit['target_quantity'])) ?></strong>
+            <?= e((string) ($habit['unit'] ?: '')) ?>
+          </p>
+        <?php endif; ?>
         <div class="cluster">
-          <form method="post" action="/app/habits/<?= e((string) $habit['id']) ?>/checkin" data-guard>
-            <?= csrf_field() ?>
-            <button class="btn btn--sm <?= $habit['done_today'] ? 'btn--accent' : 'btn--primary' ?>" type="submit">
+          <?php if ($habit['target_quantity'] !== null): ?>
+            <form method="post" action="/app/habits/<?= e((string) $habit['id']) ?>/checkin" data-guard class="cluster">
+              <?= csrf_field() ?>
+              <input type="number" name="amount" value="1" min="1" class="field-narrow-sm" aria-label="যোগ করুন">
+              <button class="btn btn--sm <?= $habit['done_today'] ? 'btn--accent' : 'btn--primary' ?>" type="submit">
+                <?= $habit['done_today'] ? 'আজ সম্পন্ন ✓' : 'যোগ করুন' ?>
+              </button>
+            </form>
+          <?php else: ?>
+            <button class="btn btn--sm <?= $habit['done_today'] ? 'btn--accent' : 'btn--primary' ?>" type="button"
+                    data-toggle-url="/app/habits/<?= e((string) $habit['id']) ?>/checkin" data-toggle-mode="label"
+                    data-toggle-done-class="btn--accent" data-toggle-done-text="আজ সম্পন্ন ✓" data-toggle-undone-text="আজ Check-in করুন">
               <?= $habit['done_today'] ? 'আজ সম্পন্ন ✓' : 'আজ Check-in করুন' ?>
             </button>
-          </form>
+          <?php endif; ?>
           <a class="btn btn--ghost btn--sm" href="/app/habits/<?= e((string) $habit['id']) ?>/history">History</a>
           <form method="post" action="/app/habits/<?= e((string) $habit['id']) ?>" data-guard data-confirm="Habit সরিয়ে ফেলবেন?">
             <?= csrf_field() ?>

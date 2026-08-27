@@ -27,14 +27,23 @@ final class NotificationRepo
 
     public function markAllRead(int $userId): void
     {
-        Db::exec('UPDATE notifications SET read_at = UTC_TIMESTAMP() WHERE user_id = ? AND read_at IS NULL', [$userId]);
+        Db::exec('UPDATE notifications SET read_at = NOW() WHERE user_id = ? AND read_at IS NULL', [$userId]);
     }
 
-    public function createForAllSubscribed(string $type, string $title, string $body): int
+    /** Dedup guard — has a matching notification already gone out since $sinceUtc (a 'Y-m-d H:i:s' storage string)? */
+    public function existsSince(int $userId, string $type, string $body, string $sinceUtc): bool
+    {
+        return (bool) Db::value(
+            'SELECT COUNT(*) FROM notifications WHERE user_id = ? AND type = ? AND body = ? AND created_at >= ?',
+            [$userId, $type, $body, $sinceUtc]
+        );
+    }
+
+    public function createForAll(string $type, string $title, string $body): int
     {
         $userIds = array_column(
-            Db::all("SELECT DISTINCT user_id FROM subscriptions WHERE status = 'active'"),
-            'user_id'
+            Db::all("SELECT id FROM users WHERE status = 'active'"),
+            'id'
         );
         foreach ($userIds as $uid) {
             $this->create((int) $uid, $type, $title, $body);

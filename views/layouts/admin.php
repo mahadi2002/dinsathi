@@ -5,8 +5,6 @@ use App\Core\View;
 $links = [
     ['/admin', 'Dashboard'],
     ['/admin/users', 'Users'],
-    ['/admin/billing-events', 'Billing Events'],
-    ['/admin/sms-log', 'SMS Log'],
     ['/admin/contact', 'Contact Inbox'],
     ['/admin/broadcast', 'Broadcast'],
     ['/admin/logs', 'App Logs'],

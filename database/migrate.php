@@ -29,39 +29,59 @@ $status = in_array('--status', $args, true);
 $fresh  = in_array('--fresh', $args, true);
 
 $cfg = config('database');
-$dsn = sprintf('mysql:host=%s;port=%d;charset=%s', $cfg['host'], $cfg['port'], $cfg['charset']);
+$dbName = (string) $cfg['name'];
 
-$pdo = new PDO($dsn, (string) $cfg['migrate_user'], (string) $cfg['migrate_pass'], [
+// MySQL has no maintenance-DB indirection like Postgres — connect to the
+// server (no dbname) with the migrate user and CREATE/DROP the target
+// directly.
+$adminDsn = sprintf('mysql:host=%s;port=%d;charset=utf8mb4', $cfg['host'], $cfg['port']);
+$adminPdo = new PDO($adminDsn, (string) $cfg['migrate_user'], (string) $cfg['migrate_pass'], [
     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     PDO::ATTR_EMULATE_PREPARES   => false,
 ]);
 
-$dbName = (string) $cfg['name'];
+$quotedDbName = '`' . str_replace('`', '``', $dbName) . '`';
 
 if ($fresh) {
     if (config('app.env') === 'production') {
         fwrite(STDERR, "--fresh is refused when APP_ENV=production.\n");
         exit(1);
     }
-    out("Dropping database `$dbName` …");
-    $pdo->exec("DROP DATABASE IF EXISTS `$dbName`");
+    out("Dropping database \"$dbName\" …");
+    $adminPdo->exec("DROP DATABASE IF EXISTS {$quotedDbName}");
 }
 
-$pdo->exec("CREATE DATABASE IF NOT EXISTS `$dbName` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-$pdo->exec("USE `$dbName`");
+$adminPdo->exec("CREATE DATABASE IF NOT EXISTS {$quotedDbName} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+
+$dsn = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $cfg['host'], $cfg['port'], $dbName);
+$pdo = new PDO($dsn, (string) $cfg['migrate_user'], (string) $cfg['migrate_pass'], [
+    PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    PDO::ATTR_EMULATE_PREPARES   => false,
+]);
 $pdo->exec("SET time_zone = '+00:00'");
 
 Db::setPdo($pdo);
 
+// Unlike Postgres, MySQL doesn't revoke a user's privileges when the
+// database they were granted on gets dropped — but re-granting on every run
+// is cheap and keeps this in sync if the app user's name/host ever changes,
+// rather than relying on a one-time manual step that can silently go stale.
+$appUser = (string) $cfg['user'];
+$pdo->exec(sprintf(
+    "GRANT SELECT, INSERT, UPDATE, DELETE ON %s.* TO %s@'127.0.0.1'",
+    $quotedDbName,
+    $adminPdo->quote($appUser)
+));
+
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS migrations (
-        id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        id         INT AUTO_INCREMENT PRIMARY KEY,
         filename   VARCHAR(160) NOT NULL,
         applied_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        UNIQUE KEY uq_mig (filename)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        CONSTRAINT uq_mig UNIQUE (filename)
+    )'
 );
 
 $applied = array_column($pdo->query('SELECT filename FROM migrations')->fetchAll(), 'filename');
@@ -145,7 +165,6 @@ function splitStatements(string $sql): array
     $len        = strlen($sql);
     $inSingle   = false;
     $inDouble   = false;
-    $inBacktick = false;
     $inComment  = false;
     $inBlock    = false;
 
@@ -169,8 +188,8 @@ function splitStatements(string $sql): array
             continue;
         }
 
-        if (!$inSingle && !$inDouble && !$inBacktick) {
-            if (($ch === '-' && $next === '-') || $ch === '#') {
+        if (!$inSingle && !$inDouble) {
+            if ($ch === '-' && $next === '-') {
                 $inComment = true;
                 continue;
             }
@@ -181,15 +200,13 @@ function splitStatements(string $sql): array
             }
         }
 
-        if ($ch === "'" && !$inDouble && !$inBacktick && ($sql[$i - 1] ?? '') !== '\\') {
+        if ($ch === "'" && !$inDouble && ($sql[$i - 1] ?? '') !== '\\') {
             $inSingle = !$inSingle;
-        } elseif ($ch === '"' && !$inSingle && !$inBacktick && ($sql[$i - 1] ?? '') !== '\\') {
+        } elseif ($ch === '"' && !$inSingle && ($sql[$i - 1] ?? '') !== '\\') {
             $inDouble = !$inDouble;
-        } elseif ($ch === '`' && !$inSingle && !$inDouble) {
-            $inBacktick = !$inBacktick;
         }
 
-        if ($ch === ';' && !$inSingle && !$inDouble && !$inBacktick) {
+        if ($ch === ';' && !$inSingle && !$inDouble) {
             $trimmed = trim($buffer);
             if ($trimmed !== '') {
                 $statements[] = $trimmed;

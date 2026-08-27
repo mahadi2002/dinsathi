@@ -20,7 +20,7 @@ use App\Repositories\NotificationRepo;
  * browser. See WebPushGateway for the real (flagged, not wired by default)
  * implementation path.
  */
-final class MockPushGateway implements PushGateway
+final class MockPushGateway
 {
     public function send(int $userId, array $subscription, string $title, string $body, string $url): array
     {

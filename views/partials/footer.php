@@ -5,11 +5,6 @@
       <a href="/terms">Terms &amp; Conditions</a>
       <a href="/contact">Contact Us</a>
     </div>
-    <p class="center small muted mb-0">Robi &amp; Airtel Bangladesh</p>
-    <p class="center small muted">© <?= e(date('Y')) ?> DinSathi — সর্বস্বত্ব সংরক্ষিত</p>
-    <p class="footer-warn">
-      ⚠️ Daily ৳<?= e($dailyAmount) ?> (Incl. VAT, SD &amp; SC) আপনার Robi/Airtel Account থেকে সরাসরি কাটা হবে।
-      Unsubscribe করতে STOP লিখে <?= e($shortcode) ?> নম্বরে SMS করুন।
-    </p>
+    <p class="center small muted mb-0">© <?= e(date('Y')) ?> <?= e($appName) ?> — সর্বস্বত্ব সংরক্ষিত</p>
   </div>
 </footer>

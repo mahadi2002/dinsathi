@@ -1,6 +1,6 @@
 <?php $this->layout('layouts/admin', ['title' => 'Broadcast']); ?>
 <h1>Broadcast</h1>
-<p class="muted">সব সক্রিয় Subscriber-কে একসাথে একটি Push + SMS Announcement পাঠান।</p>
+<p class="muted">সব ব্যবহারকারীকে একসাথে একটি In-app + Push Announcement পাঠান।</p>
 
 <div class="card narrow-md">
   <form method="post" action="/admin/broadcast" data-guard>
@@ -15,10 +15,6 @@
       <textarea id="message" name="message" maxlength="200" required><?= e(old('message')) ?></textarea>
       <?php if (error_for('message')): ?><span class="error"><?= e(error_for('message')) ?></span><?php endif; ?>
     </div>
-    <label class="check">
-      <input type="checkbox" name="also_sms" value="1">
-      SMS-ও পাঠান (প্রতিটি Subscriber-কে আলাদা SMS যাবে)
-    </label>
     <p class="mt-md"><button class="btn btn--primary" type="submit">পাঠিয়ে দিন</button></p>
   </form>
 </div>
