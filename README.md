@@ -18,10 +18,9 @@ PustiSathi) — same architecture, re-skinned.
 
 This app follows the same architecture as the rest of the series (see
 `PLAYBOOK.md` in the parent workspace, if you have it checked out
-alongside the other apps — not part of this repo). This app's own locked
-decisions and exact UI copy are in [`01-BUILD-SPEC.md`](01-BUILD-SPEC.md)
-(historical — predates the Phase 1 rebrand/auth rebuild; see
-[`TODO.md`](TODO.md) for what has changed since).
+alongside the other apps — not part of this repo). See
+[`TODO.md`](TODO.md) for what has changed since the original build,
+including the Phase 1 rebrand/auth rebuild.
 
 ## Quick start
 

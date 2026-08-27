@@ -2,49 +2,64 @@
 
 ## Auth
 
-Phone + OTP only, no passwords, for regular users — matches the BDApps SDP
-flow and the spec's locked decision (01-BUILD-SPEC.md §11). OTP codes are
-never stored in plaintext: `OtpService` hashes with `Crypto::blindIndex()`
-(HMAC-SHA256, keyed by `HASH_PEPPER`) and compares with `hash_equals()`.
-5-minute TTL, capped attempts, rate-limited per mobile number.
+Email + password for regular users (`AuthController`) — passwords are
+hashed with PHP's `password_hash()`/`PASSWORD_DEFAULT` (bcrypt) and checked
+with `password_verify()`. Login always runs `password_verify()` against a
+real bcrypt hash — a hard-coded dummy hash stands in when the email doesn't
+exist — so a non-existent account takes about as long to reject as a wrong
+password. Registration and login are both rate-limited by IP hash
+(`rl:register`, `rl:login`); a duplicate-email registration and any login
+failure both show the same generic message, never confirming which
+addresses are already registered.
+
+Password reset: a random token (`Crypto::randomToken(32)`) is emailed
+(`MailerService::sendPasswordReset()`) and never stored raw — only its
+`Crypto::blindIndex()` (HMAC-SHA256, keyed by `HASH_PEPPER`) goes in
+`password_resets.token_hash`, with a TTL (`PASSWORD_RESET_TTL_SECONDS`,
+1 hour by default) and a `consumed_at` flag so a link only works once.
+Completing a reset revokes every other session on that account
+(`Session::revokeAllForUser()`).
 
 Admin auth is **entirely separate**: email + password (`password_hash`,
-bcrypt/argon2id via PHP's default), its own session flag (`admin_id`), its
-own rate-limit bucket, optional `ADMIN_IP_ALLOWLIST`.
+bcrypt via PHP's default), its own session flag (`admin_id`), its own
+rate-limit bucket (`rl:admin_login`), optional `ADMIN_IP_ALLOWLIST`.
 
 ## Sessions
 
-DB-backed (`sessions` table), never files — the only way a lapsed
-subscription can lose access on another device's *very next request*
-instead of at its next login. Bound to a hash of the user-agent (not IP —
-mobile carrier IPs rotate constantly in this market; IP-binding would just
-log people out randomly). Regenerated on login. Killed server-side by
-`Session::revokeAllForUser()` on unsubscribe and on account status change.
+DB-backed (`sessions` table), never files — this is what lets a suspended
+or deleted account, or a password change, kill every other open session on
+its *very next request* instead of at its next login. Bound to a hash of
+the user-agent (not IP — mobile data IPs rotate constantly; IP-binding
+would just log people out randomly). Regenerated on login
+(`Session::regenerate()`). Killed server-side by
+`Session::revokeAllForUser()` on password reset
+(`AuthController::resetPassword()`) and on account status change
+(`RequireAuth` middleware finds a non-`active` account on any gated request
+and revokes + destroys the session on the spot).
 
-## Subscription gate
+## Access control
 
-`RequireSubscription` middleware and `SubscriptionService::hasAccess()` are
-one code path, always a live DB query. No session flag, no cookie, no
-cached claim ever decides access — verified by hand in this build's browser
-walkthrough (unsubscribe → reload `/app` → redirected to `/subscribe`, same
-request cycle). There is no free tier: every `/app/*` route requires an
-active `planner` subscription; `hasSmsAccess()` is the same live-query
-pattern for the separate `sms_reminders` add-on.
+Every `/app/*` route requires only the `auth` middleware (`RequireAuth`) —
+a signed-in account in `active` status, nothing else. There is no paid
+tier, no free/paid split, and no separate gate for reminders: Web Push is
+bundled for every account. Admin routes are gated the same way by a
+parallel `admin` middleware (`RequireAdmin`) checking `admin_id`, entirely
+separate from user auth.
 
 ## CSRF
 
 Token on every state-changing POST/PATCH/DELETE (`CsrfGuard` middleware +
-`csrf_field()` in every form). The one exception in the route table is a
-future billing webhook, which can't carry a session token and would be
-verified by signature + IP allowlist instead — not yet wired since the real
-BDApps webhook contract doesn't exist yet.
+`csrf_field()` in every form) — no exceptions in the current route table
+(see `app/routes.php`); there's no webhook or other unauthenticated
+state-changing endpoint that would need one.
 
 ## Rate limiting
 
-`rate_limits` table, fixed-window, keyed by IP hash (+ user id where
-relevant): OTP request/verify/resend, login, admin login, contact form,
-CSV export. IP-only limiting is deliberately avoided for anything an
-attacker could weaponize into a shared-network lockout.
+`rate_limits` table, fixed-window, keyed by IP hash: registration, login,
+password-reset request, admin login, contact form, CSV export
+(`rl:register`, `rl:login`, `rl:password_reset`, `rl:admin_login`,
+`rl:contact`, `rl:export` in `app/routes.php`). Each bucket is independent,
+so hitting one doesn't burn down another.
 
 ## Content-Security-Policy
 
@@ -75,14 +90,15 @@ Concretely:
 
 ## PII handling
 
-`mobile_number` is stored in plain `VARCHAR(11)` per DinSathi's own locked
-schema (see docs/DATABASE.md for why this diverges from the workspace's
-usual two-secret encrypt+blind-index pattern). It is never logged in full —
-`Logger::scrub()` redacts any context key named `mobile_number`/`msisdn`/
-`phone`/`otp`/etc., and gateway classes log only the last 4 digits. Admin
-list views show `mask_msisdn()` output (`017XXXXX78`); the full number
-appears only on the single-user detail page, and that view is
-audit-logged.
+Regular users are identified by `email` + `password_hash` only — no phone
+number is collected or stored since the Phase 1 email+password rebuild
+(`users.mobile_number`/`operator` were dropped by
+`010_phase1_email_auth_and_billing_removal.sql`). Passwords and other
+secrets are never logged: `Logger::scrub()` redacts any context key named
+`password`, `token`, `app_key`, `secret`, `payload`, `auth_key`, or
+`p256dh_key` before a line is written. Admin user list/detail views show
+the account's email directly — there's no masking helper, since email
+isn't treated as sensitively as the phone number was under the old scheme.
 
 ## Headers (`SecurityHeaders` middleware + `.htaccess`)
 
@@ -93,8 +109,8 @@ denying geolocation/camera/mic/payment, HSTS (skipped on localhost),
 
 ## Pre-launch checklist
 
-See `03-ENV-AND-CONFIG.md §9` (this app's own spec) — `.env`/`/app`/
-`/config`/`/storage` unreachable via HTTP, VAPID private key never
-committed or logged, session cookie flags (`Secure`/`HttpOnly`/`SameSite=Lax`),
-admin password changed from the seeded default, mobile numbers masked
-everywhere except the audited detail view.
+`.env`/`/app`/`/config`/`/storage` unreachable via HTTP, VAPID private key
+never committed or logged, session cookie flags (`Secure`/`HttpOnly`/
+`SameSite=Lax`), admin password changed from the seeded default
+(`ChangeMe123!`), no password ever appears in `storage/logs/*.log` (verify
+against `Logger::scrub()`'s blocklist).

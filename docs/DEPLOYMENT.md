@@ -21,11 +21,10 @@
    ```
    * * * * * php /path/to/dinsathi/cron/run_jobs.php >> /path/to/dinsathi/storage/logs/cron.log 2>&1
    ```
-6. `APP_ENV=production`, `APP_DEBUG=false`, `SUBSCRIPTION_GATEWAY=bdapps`
-   once real BDApps credentials exist. **The app refuses to boot** if
-   `APP_ENV=production` while still on `SUBSCRIPTION_GATEWAY=mock` or with
-   debug on (`app/bootstrap.php`'s startup guards) — that's intentional,
-   fix the env config rather than working around it.
+6. `APP_ENV=production`, `APP_DEBUG=false`. **The app refuses to boot** if
+   `APP_ENV=production` while `APP_DEBUG` is still on
+   (`app/bootstrap.php`'s startup guards) — that's intentional, fix the env
+   config rather than working around it.
 7. Point an uptime monitor at `GET /health` (runs a real `SELECT 1`), not
    `/`.
 8. Nightly `mysqldump --single-transaction | gzip` to off-server storage,
@@ -38,14 +37,13 @@
    - Fresh `APP_KEY`/`HASH_PEPPER` (not copied from dev)
    - CSP has no `unsafe-inline` (already true by default — don't add it)
    - Manually verify, in a second browser, that a session dies on the
-     browser's *next* request after unsubscribing (see docs/SECURITY.md)
-10. **PUSH_GATEWAY stays `mock` until the VAPID/AES-GCM implementation gets
-    a real review** — see docs/FEATURES.md's Known Open Items. Don't flip
-    it to `webpush` without that review; `WebPushGateway` currently just
-    throws.
-11. **SMS_GATEWAY stays `mock` until a real provider is chosen and wired**
-    — same reasoning, see docs/FEATURES.md.
-12. The one thing that doesn't survive scaling past one server as-is:
+     browser's *next* request after a password reset (see docs/SECURITY.md)
+10. **`PUSH_GATEWAY` stays `mock` until the VAPID/RFC 8291 crypto
+    implementation gets a real review** — see TODO.md. Don't flip it to
+    `webpush` without that review; `WebPushGateway` currently just throws.
+    Web Push is the only reminder channel this app has — there is no SMS
+    fallback.
+11. The one thing that doesn't survive scaling past one server as-is:
     nothing, actually — this app has no local-disk uploads (unlike its
     photo-heavy siblings). Sessions live in MySQL, storage/ only holds logs
     and cron lock files. Safe to run behind a load balancer once the DB is

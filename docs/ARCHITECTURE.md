@@ -6,8 +6,7 @@
    Defines `APP_ROOT`, requires `app/bootstrap.php`.
 2. `bootstrap.php` — autoloader (`App\` → `app/`), loads `.env`, runs
    startup guards (refuses to boot with `APP_ENV=production` while
-   `SUBSCRIPTION_GATEWAY=mock` or `APP_DEBUG=true`), registers error/
-   exception/shutdown handlers.
+   `APP_DEBUG=true`), registers error/exception/shutdown handlers.
 3. `Request::capture()` builds an immutable request from superglobals.
 4. `Session::start()` — DB-backed session (see below).
 5. `Router::dispatch()` matches `app/routes.php`, runs the route's
@@ -19,18 +18,17 @@
 ## Things worth knowing before you touch them
 
 - **Sessions live in MySQL** (`sessions` table), not files. This is what
-  makes `SubscriptionService::unsubscribe()` able to revoke *other* active
-  sessions the instant a subscription lapses — the row is deleted, so the
-  next request from that browser has nothing to read. (The unsubscribing
+  makes `Session::revokeAllForUser()` able to revoke *other* active
+  sessions instantly — on password reset, and when `RequireAuth` finds an
+  account that's no longer `active` — because the row is deleted, so the
+  next request from that browser has nothing to read. (The revoking
   browser's *own* current request keeps working until it ends — PHP already
   has the session data in memory — but its very next request re-checks the
-  DB and gets redirected to `/subscribe`, per `RequireSubscription`/`SubscriptionService`.)
-- **No cached "is subscribed" flag, anywhere.** `SubscriptionService::hasAccess()`
-  (`planner`) and `hasSmsAccess()` (`sms_reminders`) are both queries every
-  time, called fresh on every gated request/dispatch. See the browser
-  walkthrough in this repo's build history: unsubscribing and reloading
-  `/app` immediately redirects to `/subscribe` — no session flag to go
-  stale. There is no free tier for either plan.
+  DB and gets redirected to `/login`.)
+- **No paid tier, no subscription/billing gate.** Every `/app/*` route
+  requires only the `auth` middleware (`RequireAuth`) — a signed-in,
+  `active`-status account. There is no session flag or cached claim to go
+  stale, because there's nothing beyond "is this a valid session" to check.
 - **All `due_at`/`fire_at`/`created_at` columns are UTC.** Conversion to
   Asia/Dhaka happens *only* through `App\Support\DateBD` (or the
   `bn_date_utc()` view helper that wraps it) — never a bare `bn_date()` call
@@ -40,15 +38,17 @@
   hour. This bug shipped once during this build (task due-times showed as
   noon instead of 6pm) and was caught by browser-testing the actual task
   card, not by code review — see docs/DEVELOPMENT.md's testing note.
-- **Push notifications.** `ReminderService` calls `MockPushGateway`
-  directly — every environment actually runs the mock today.
-  `WebPushGateway` is scaffolding that throws until real VAPID/RFC 8291
-  crypto is implemented (see TODO.md); the driver-selection factory that
-  used to sit between them was removed since the real gateway had no
-  working code path to select. Restore a factory if/when `WebPushGateway`
-  becomes real. The subscription/SMS/OTP gateways this section used to
-  describe (`SubscriptionGateway`, `SmsGateway`, `BdAppsGateway`,
-  `SmsGatewayAdapter`) were deleted along with carrier billing.
+- **Push notifications are the only reminder channel.** SMS reminders were
+  removed entirely along with the old subscription/billing system.
+  `ReminderService` calls `MockPushGateway` directly — every environment
+  actually runs the mock today. `WebPushGateway` is scaffolding that throws
+  until real VAPID/RFC 8291 crypto is implemented (see TODO.md); the
+  driver-selection factory that used to sit between them was removed since
+  the real gateway had no working code path to select. Restore a factory
+  if/when `WebPushGateway` becomes real. `app/Gateways/` now holds only
+  `MockPushGateway` and `WebPushGateway` — the subscription/SMS/OTP
+  gateways this section used to describe were deleted along with carrier
+  billing.
 - **CSP has no `unsafe-inline`**, on scripts or styles. Every dynamic value
   a view needs goes through a pre-generated CSS utility class
   (`.progress-N`, `.swatch-N`, `.mt-sm`, ...) instead of `style=""`, and
@@ -59,24 +59,35 @@
 
 ```
 Controllers/     parse Request, call one Service, return a Response — never raw SQL
-Services/        business rules: caps, subscription state, recurrence math, streak math
+Services/        business rules: task/habit/focus logic, recurrence math, streak math, reminders, maintenance
 Repositories/    all SQL, one class per table (or tight cluster of tables)
-Gateways/        external-system interfaces + Mock implementations
+Gateways/        external-system interfaces + Mock implementations (push only)
 Support/         DateBD (UTC↔Dhaka), RRuleLite (recurrence engine)
-Jobs/            one class per cron task, called by cron/run_jobs.php
-Core/            framework primitives: Router, Db, Session, Csrf, Validator, ...
+Core/            framework primitives: Router, Db, Session, Csrf, Validator, Crypto, ...
 ```
+
+There is no `Jobs/` directory — cron tasks are plain methods on the
+existing `Services/` classes, dispatched directly by `cron/run_jobs.php`
+(see below), not a separate class-per-job layer.
 
 ## Cron
 
 One crontab line drives everything (`cron/run_jobs.php`, every minute).
-Minute-granularity jobs (`DispatchReminders`, `RetrySmsFailures`) run every
-invocation; daily-only jobs (`GenerateRecurringInstances`,
-`CheckSubscriptionExpiry`, `Cleanup`) self-guard via a "have I already run
-today" check against the `jobs` table. `RolloverStreaks` is a third
-pattern: it runs every minute but no-ops until Asia/Dhaka local time
-reaches 20:00. A file lock (`cron/_lock.php`) stops overlapping runs from
-double-dispatching.
+It dispatches four tasks, each a method on an existing service:
+
+- **`DispatchReminders`** (`ReminderService::dispatchDue()`) —
+  minute-granularity, runs every invocation.
+- **`GenerateRecurringInstances`** (`RecurrenceService::generateForAllTemplates()`)
+  — daily-only, self-guards via a "have I already run today" check against
+  the `jobs` table.
+- **`RolloverStreaks`** (`HabitService::rolloverStreaks()`) — runs every
+  invocation but no-ops until Asia/Dhaka local time reaches 20:00 (its own
+  threshold check, not the daily `jobs`-table guard).
+- **`Cleanup`** (`MaintenanceService::cleanup()`) — daily-only, same
+  `jobs`-table guard as `GenerateRecurringInstances`.
+
+A file lock (`cron/_lock.php`) stops overlapping runs from
+double-dispatching; `cron/_jobguard.php` implements the daily-guard checks.
 
 ## Recurring tasks
 

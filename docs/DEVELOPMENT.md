@@ -40,7 +40,7 @@ cd public && C:\xampp\php\php.exe -S 127.0.0.1:8030 router-dev.php
   coverage — the "did I just break something load-bearing" gate.
 - **Actually drive changed features in a browser before calling anything
   done.** This build's own history is the argument for this: `php -l`
-  passed on every file, but the register→OTP→dashboard flow first threw
+  passed on every file, but the register→dashboard flow first threw
   `Call to undefined method Request::body()` (Validator call sites assumed
   a method that didn't exist yet), and task due-times displayed 6 hours off
   until a real task card was inspected in a browser and compared against
@@ -49,7 +49,7 @@ cd public && C:\xampp\php\php.exe -S 127.0.0.1:8030 router-dev.php
 
 ## Known gaps to fill before treating this as "done"
 
-- Self-hosted `Hind Siliguri` / `Inter` webfonts — see docs/FEATURES.md.
+- Self-hosted `Hind Siliguri` / `Inter` webfonts are not yet vendored.
   `app.css`'s `--font-body`/`--font-display` tokens are already the single
   place to swap them in once the `.woff2` files are vendored into
   `public/assets/fonts/`.

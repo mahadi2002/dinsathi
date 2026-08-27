@@ -38,35 +38,31 @@ php database/migrate.php --fresh --seed
 php tests/smoke.php
 ```
 
-## Seeded credentials
+## Seeded admin account
 
-| Role  | Login                       | Credential |
-|-------|------------------------------|------------|
-| Admin | `/admin/login`                | `admin@dinsathi.local` / `ChangeMe123!` — **change this immediately, see docs/DEPLOYMENT.md** |
-| User  | `/register`                   | Any `01[6/7/9]XXXXXXXX` number — OTP is logged, not really sent (see below) |
+`php database/migrate.php --fresh --seed` runs `database/seeds/001_admin.php`,
+which inserts one `admin_users` row if none exists for that email yet:
 
-## Where the mock OTP/SMS actually go
+| Role  | Login           | Credential |
+|-------|-----------------|------------|
+| Admin | `/admin/login`  | `admin@prohor.local` / `ChangeMe123!` — **change this immediately, see docs/DEPLOYMENT.md** |
 
-`MockSmsGateway` and `MockGateway` never call a real network — they write to
-`storage/logs/sms-YYYY-MM-DD.log` and `storage/logs/otp-YYYY-MM-DD.log`.
-Tail the relevant file to read the code:
+There's no seeded regular-user account — create one yourself at
+`/register` (email + password, 8+ characters). Registration also creates
+that user's default task list automatically (`AuthController::register()`).
+
+## Where outbound mail actually goes
+
+In local dev (`APP_ENV=local`, the `.env.example` default), `MailerService`
+never calls a real network — password-reset emails are written to
+`storage/logs/mail-YYYY-MM-DD.log` instead of being sent (outside `local`
+it falls back to PHP's `mail()` via the host's MTA; see TODO.md — a real
+SMTP/API transport is still open). Tail the relevant file to read a reset
+link:
 
 ```bash
-tail -f storage/logs/sms-*.log
+tail -f storage/logs/mail-*.log
 ```
-
-## Test-number conventions (mock gateway)
-
-Mirrors the convention used across this workspace's other apps:
-
-| Mobile number suffix | Simulates |
-|---|---|
-| anything else | subscription activates normally |
-| ends in `00` | low balance → `suspended` |
-| ends in `99` | hard failure → `expired` |
-
-Same-day retry on the same number is intentionally blocked (idempotency) —
-use a different test number rather than "fixing" that.
 
 ## Running the background jobs manually
 
@@ -74,9 +70,10 @@ use a different test number rather than "fixing" that.
 php cron/run_jobs.php
 ```
 
-Safe to run repeatedly — daily-only jobs self-guard via the `jobs` table,
-and minute-granularity jobs (`DispatchReminders`, `RetrySmsFailures`) are
-idempotent by design.
+Safe to run repeatedly — daily-only jobs (`GenerateRecurringInstances`,
+`Cleanup`) self-guard via the `jobs` table, `RolloverStreaks` self-guards on
+the 20:00 Asia/Dhaka threshold, and `DispatchReminders` is idempotent by
+design.
 
 ## If it won't load
 
@@ -85,5 +82,5 @@ idempotent by design.
 - **CSS/JS 404** — you're running `index.php` directly instead of
   `router-dev.php` with `php -S`.
 - **"Unknown database 'dinsathi'"** — run `php database/migrate.php --fresh`.
-- **OTP never arrives** — it's not supposed to over the network; read
-  `storage/logs/sms-*.log` (see above).
+- **Password-reset email never arrives** — it's not supposed to over the
+  network in local dev; read `storage/logs/mail-*.log` (see above).
